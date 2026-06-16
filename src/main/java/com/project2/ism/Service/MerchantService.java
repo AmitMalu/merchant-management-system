@@ -6,6 +6,7 @@ import com.project2.ism.DTO.MerchantFormDTO;
 import com.project2.ism.DTO.MerchantListDTO;
 import com.project2.ism.DTO.MerchantProductSummaryDTO;
 import com.project2.ism.DTO.MerchantViewDTO;
+import com.project2.ism.Enum.VerificationType;
 import com.project2.ism.Exception.ResourceNotFoundException;
 import com.project2.ism.Model.ContactPerson;
 import com.project2.ism.Model.InventoryTransactions.OutwardTransactions;
@@ -17,6 +18,8 @@ import com.project2.ism.Model.Users.Franchise;
 import com.project2.ism.Model.Users.Merchant;
 import com.project2.ism.Repository.*;
 import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -33,6 +36,9 @@ import java.util.stream.Collectors;
 @Transactional
 public class MerchantService {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(MerchantService.class);
+
     private final MerchantRepository merchantRepository;
     private final FranchiseRepository franchiseRepository;
     private final FileStorageService fileStorageService;
@@ -48,10 +54,18 @@ public class MerchantService {
 
     private final ProductDistributionRepository productDistributionRepository;
 
+    private final DigiLockerService digilockerService;
+
+
     public MerchantService(MerchantRepository merchantRepository,
                            FranchiseRepository franchiseRepository,
                            FileStorageService fileStorageService,
-                           UserService userService, OutwardTransactionRepository outwardRepo, ProductSerialsRepository serialRepo, ProductRepository productRepository, MerchantWalletRepository merchantWalletRepository, ProductDistributionRepository productDistributionRepository) {
+                           UserService userService, OutwardTransactionRepository outwardRepo,
+                           ProductSerialsRepository serialRepo, ProductRepository productRepository,
+                           MerchantWalletRepository merchantWalletRepository,
+                           ProductDistributionRepository productDistributionRepository,
+                           DigiLockerService digilockerService
+) {
         this.merchantRepository = merchantRepository;
         this.franchiseRepository = franchiseRepository;
         this.fileStorageService = fileStorageService;
@@ -61,6 +75,7 @@ public class MerchantService {
         this.productRepository = productRepository;
         this.merchantWalletRepository = merchantWalletRepository;
         this.productDistributionRepository = productDistributionRepository;
+        this.digilockerService = digilockerService;
     }
 
     public void createMerchant(MerchantFormDTO dto) {
@@ -159,6 +174,23 @@ public class MerchantService {
                     "MERCHANT",
                     null
             );
+        }
+
+        try {
+
+            if (savedMerchant.getFranchise() == null) {
+
+                digilockerService.initializeForMerchant(savedMerchant, VerificationType.INDEPENDENT_MERCHANT);
+
+            } else {
+                digilockerService.initializeForMerchant(savedMerchant, VerificationType.FRANCHISE_MERCHANT);
+
+            }
+
+        } catch (Exception ex) {
+
+            log.error("Digilocker initialization failed for merchant {}", savedMerchant.getId(), ex);
+
         }
     }
 

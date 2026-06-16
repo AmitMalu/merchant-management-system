@@ -1,22 +1,22 @@
 package com.project2.ism.Model.Logs;
 
-
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "franchise_or_merchant_notification_logs",
+@Table(name = "mosambee_notification_logs",
         indexes = {
                 @Index(name = "idx_rzp_txn_id", columnList = "txn_id"),
                 @Index(name = "idx_rzp_created_at", columnList = "created_at")
         })
-public class FranchiseOrMerchantNotificationLog {
+public class MosambeeNotificationLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Razorpay transaction ID ("txnId")
     @Column(name = "txn_id", length = 40)
     private String txnId;
 
@@ -24,13 +24,17 @@ public class FranchiseOrMerchantNotificationLog {
     @Column(name = "raw_json", columnDefinition = "LONGTEXT")
     private String rawJson;
 
-    //isSend : SUCCESS / FAILED
-    @Column(name = "is_send")
-    private boolean isSend = false;
+    // Status: RECEIVED / SUCCESS / FAILED
+    @Column(name = "process_status", length = 20)
+    private String processStatus;
 
     // Error message if mapping failed
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
+
+    // Optional: retry count if needed later
+    @Column(name = "retry_count")
+    private Integer retryCount = 0;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -39,7 +43,7 @@ public class FranchiseOrMerchantNotificationLog {
     @Column(name = "processing_time_ms")
     private Long processingTimeMs;
 
-    public FranchiseOrMerchantNotificationLog() {}
+    public MosambeeNotificationLog() {}
 
     public Long getId() {
         return id;
@@ -65,12 +69,12 @@ public class FranchiseOrMerchantNotificationLog {
         this.rawJson = rawJson;
     }
 
-    public boolean isSend() {
-        return isSend;
+    public String getProcessStatus() {
+        return processStatus;
     }
 
-    public void setSend(boolean send) {
-        isSend = send;
+    public void setProcessStatus(String processStatus) {
+        this.processStatus = processStatus;
     }
 
     public String getErrorMessage() {
@@ -79,6 +83,14 @@ public class FranchiseOrMerchantNotificationLog {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public Integer getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount;
     }
 
     public LocalDateTime getCreatedAt() {

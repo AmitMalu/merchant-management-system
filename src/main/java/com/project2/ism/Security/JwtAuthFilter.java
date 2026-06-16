@@ -77,7 +77,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     response.getWriter().write("Forbidden");
                     return;
                 }
-            }
+                // Apply ONLY to Mosambee notification endpoint
+            } else if (uri.startsWith("/mosambee/notification")) {
+
+                    String clientIp = getClientIp(request);
+                    logger.info("Mosambee notification request from IP: {}", clientIp);
+
+                    if (!ALLOWED_IPS.contains(clientIp)) {
+                        logger.warn("Blocked Mosambee notification from IP: {}", clientIp);
+                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                        response.getWriter().write("Forbidden");
+                        return;
+                    }
+                }
 
             String token = extractTokenFromRequest(request);
 

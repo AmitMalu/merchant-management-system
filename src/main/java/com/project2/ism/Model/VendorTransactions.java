@@ -37,28 +37,21 @@ public class VendorTransactions {
     @Column(name = "Date")
     private LocalDateTime date;
 
-    //@NotBlank(message = "Mobile number is required")
-    //@Pattern(regexp = "\\d{10,15}", message = "Mobile must be numeric and 10-15 digits")
     @Column(name = "Mobile")
     private String mobile;
 
-//    @Email(message = "Email should be valid")
     @Column(name = "Email")
     private String email;
 
-    //@NotBlank(message = "Consumer is required")
     @Column(name = "Consumer")
     private String consumer;
 
-    //@NotBlank(message = "Username is required")
     @Column(name = "Username")
     private String username;
 
-    //@NotBlank(message = "Type is required")
     @Column(name = "Type")
     private String type;
 
-    //@NotBlank(message = "Mode is required")
     @Column(name = "Mode")
     private String mode;
 
@@ -82,19 +75,15 @@ public class VendorTransactions {
     @Column(name = "Auth_Code")
     private String authCode;
 
-    //@NotBlank(message = "card required")
     @Column(name = "Card")
     private String card;
 
-//  @NotBlank(message = "Issuing bank required")
     @Column(name = "Issuing_Bank")
     private String issuingBank;
 
-    //@NotBlank(message = "card type required")
     @Column(name = "Card_Type")
     private String cardType;
 
-   // @NotBlank(message = "Brand Type required")
     @Column(name = "Brand_Type")
     private String brandType;
 
