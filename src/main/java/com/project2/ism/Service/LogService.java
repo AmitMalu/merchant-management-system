@@ -3,6 +3,8 @@ package com.project2.ism.Service;
 import com.project2.ism.Model.*;
 import com.project2.ism.Model.Logs.FranchiseOrMerchantNotificationLog;
 import com.project2.ism.Model.Logs.RazorpayNotificationLog;
+import com.project2.ism.Model.Logs.DigilockerLog;
+import com.project2.ism.Model.Logs.MosambeeNotificationLog;
 import com.project2.ism.Model.Payment.PaymentVendorLog;
 import com.project2.ism.Model.Payment.PaymentVendorMonthlyLog;
 import com.project2.ism.Model.Payment.PaymentVendorResponseLog;
@@ -30,14 +32,18 @@ public class LogService {
     private final PaymentVendorLogRepository paymentVendorLogRepository;
     private final PaymentVendorMonthlyLogRepository paymentVendorMonthlyLogRepository;
     private final FranchiseOrMerchantNotificationLogRepository franchiseOrMerchantNotificationLogRepo;
+    private final DigilockerLogRepository digilockerLogRepository;
+    private final MosambeeNotificationLogRepository mosambeeNotificationLogRepository;
 
-    public LogService(RequestLogRepository requestLogRepository, RazorpayNotificationLogRepository razorpayNotificationLogRepository, PaymentVendorResponseLogRepository paymentVendorResponseLogRepository, PaymentVendorLogRepository paymentVendorLogRepository, PaymentVendorMonthlyLogRepository paymentVendorMonthlyLogRepository, FranchiseOrMerchantNotificationLogRepository franchiseOrMerchantNotificationLogRepo) {
+    public LogService(RequestLogRepository requestLogRepository, RazorpayNotificationLogRepository razorpayNotificationLogRepository, PaymentVendorResponseLogRepository paymentVendorResponseLogRepository, PaymentVendorLogRepository paymentVendorLogRepository, PaymentVendorMonthlyLogRepository paymentVendorMonthlyLogRepository, FranchiseOrMerchantNotificationLogRepository franchiseOrMerchantNotificationLogRepo, DigilockerLogRepository digilockerLogRepository, MosambeeNotificationLogRepository mosambeeNotificationLogRepository) {
         this.requestLogRepository = requestLogRepository;
         this.razorpayNotificationLogRepository = razorpayNotificationLogRepository;
         this.paymentVendorResponseLogRepository = paymentVendorResponseLogRepository;
         this.paymentVendorLogRepository = paymentVendorLogRepository;
         this.paymentVendorMonthlyLogRepository = paymentVendorMonthlyLogRepository;
         this.franchiseOrMerchantNotificationLogRepo = franchiseOrMerchantNotificationLogRepo;
+        this.digilockerLogRepository = digilockerLogRepository;
+        this.mosambeeNotificationLogRepository = mosambeeNotificationLogRepository;
     }
 
     // ==================== REQUEST LOGS ====================
@@ -281,6 +287,58 @@ public class LogService {
         paymentVendorMonthlyLogRepository.deleteById(id);
     }
 
+    // ==================== DIGILOCKER LOGS ====================
+
+    public Page<DigilockerLog> getDigilockerLogs(
+            Pageable pageable,
+            LocalDate start,
+            LocalDate end,
+            String status,
+            String clientId,
+            Long merchantId,
+            Long franchiseId,
+            String apiName) {
+
+        LocalDateTime startDateTime = start != null ? start.atStartOfDay() : null;
+        LocalDateTime endDateTime = end != null ? end.atTime(23, 59, 59) : null;
+
+        String processStatus = (status != null && !status.equalsIgnoreCase("all")) ? status : null;
+
+        return digilockerLogRepository.findLogsByFilters(
+                clientId,
+                merchantId,
+                franchiseId,
+                processStatus,
+                apiName,
+                startDateTime,
+                endDateTime,
+                pageable
+        );
+    }
+
+    // ==================== MOSAMBEE LOGS ====================
+
+    public Page<MosambeeNotificationLog> getMosambeeLogs(
+            Pageable pageable,
+            LocalDate start,
+            LocalDate end,
+            String status,
+            String txnId) {
+
+        LocalDateTime startDateTime = start != null ? start.atStartOfDay() : null;
+        LocalDateTime endDateTime = end != null ? end.atTime(23, 59, 59) : null;
+
+        String processStatus = (status != null && !status.equalsIgnoreCase("all")) ? status : null;
+
+        return mosambeeNotificationLogRepository.findLogsByFilters(
+                txnId,
+                processStatus,
+                startDateTime,
+                endDateTime,
+                pageable
+        );
+    }
+
     // ==================== CLEANUP SCHEDULED TASKS ====================
 
     @Scheduled(cron = "0 0 2 * * ?") // Run daily at 2 AM
@@ -307,6 +365,20 @@ public class LogService {
             System.out.println("Cleaned up vendor response logs older than " + cutoffDate);
         } catch (Exception e) {
             System.err.println("Error cleaning up vendor response logs: " + e.getMessage());
+        }
+
+        try {
+            digilockerLogRepository.deleteByCreatedAtBefore(cutoffDate);
+            System.out.println("Cleaned up Digilocker logs older than " + cutoffDate);
+        } catch (Exception e) {
+            System.err.println("Error cleaning up Digilocker logs: " + e.getMessage());
+        }
+
+        try {
+            mosambeeNotificationLogRepository.deleteByCreatedAtBefore(cutoffDate);
+            System.out.println("Cleaned up Mosambee logs older than " + cutoffDate);
+        } catch (Exception e) {
+            System.err.println("Error cleaning up Mosambee logs: " + e.getMessage());
         }
     }
 }

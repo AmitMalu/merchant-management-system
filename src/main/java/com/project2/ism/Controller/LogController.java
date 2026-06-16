@@ -3,6 +3,8 @@ package com.project2.ism.Controller;
 import com.project2.ism.Model.*;
 import com.project2.ism.Model.Logs.FranchiseOrMerchantNotificationLog;
 import com.project2.ism.Model.Logs.RazorpayNotificationLog;
+import com.project2.ism.Model.Logs.DigilockerLog;
+import com.project2.ism.Model.Logs.MosambeeNotificationLog;
 import com.project2.ism.Model.Payment.PaymentVendorLog;
 import com.project2.ism.Model.Payment.PaymentVendorMonthlyLog;
 import com.project2.ism.Model.Payment.PaymentVendorResponseLog;
@@ -221,6 +223,41 @@ public class LogController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(logService.getVendorMonthlyLogs(pageable));
+    }
+
+    // ==================== DIGILOCKER LOGS ====================
+
+    @GetMapping("/digilocker")
+    public ResponseEntity<Page<DigilockerLog>> getDigilockerLogs(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+            @RequestParam(defaultValue = "all") String status,
+            @RequestParam(required = false) String clientId,
+            @RequestParam(required = false) Long merchantId,
+            @RequestParam(required = false) Long franchiseId,
+            @RequestParam(required = false) String apiName) {
+        Pageable pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(logService.getDigilockerLogs(
+                pageable, start, end, status, clientId, merchantId, franchiseId, apiName
+        ));
+    }
+
+    // ==================== MOSAMBEE LOGS ====================
+
+    @GetMapping("/mosambee")
+    public ResponseEntity<Page<MosambeeNotificationLog>> getMosambeeLogs(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+            @RequestParam(defaultValue = "all") String status,
+            @RequestParam(required = false) String txnId) {
+        Pageable pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(logService.getMosambeeLogs(
+                pageable, start, end, status, txnId
+        ));
     }
 
 }
