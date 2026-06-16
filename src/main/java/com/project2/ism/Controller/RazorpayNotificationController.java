@@ -1,20 +1,16 @@
 package com.project2.ism.Controller;
 
 
-
-import com.project2.ism.DTO.ReportDTO.ApiResponse;
 import com.project2.ism.Service.RazorpayTransactionService;
-import com.razorpay.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
-import java.time.LocalDateTime;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 
 @RestController
@@ -23,9 +19,6 @@ public class RazorpayNotificationController {
 
     private static final Logger log = LoggerFactory.getLogger(RazorpayNotificationController.class);
     private final RazorpayTransactionService razorpayTransactionService;
-
-    //@Value("${razorpay.notification.secret}")
-    //private String razorpaySecret;
 
     @Value("${razorpay.webhook.secret}")
     private String webhookSecret;

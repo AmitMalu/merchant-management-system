@@ -52,6 +52,8 @@ public class SecurityConfig {
 
                         .requestMatchers("/razorpay/notification").permitAll()
 
+                        .requestMatchers("/mosambee/notification").permitAll()
+
                         .requestMatchers(
                                 "/payment-payout/callback",
                                 "/tools/encrypt/**"

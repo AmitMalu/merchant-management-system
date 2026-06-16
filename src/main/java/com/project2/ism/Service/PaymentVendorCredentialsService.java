@@ -2,12 +2,15 @@ package com.project2.ism.Service;
 
 import com.project2.ism.DTO.Vendor.VendorCredentialsRequestDTO;
 import com.project2.ism.DTO.Vendor.VendorCredentialsResponseDTO;
+import com.project2.ism.DTO.VendorCredentialDTO;
 import com.project2.ism.Model.Payment.PaymentVendor;
 import com.project2.ism.Model.Payment.PaymentVendorCredentials;
 import com.project2.ism.Model.Payment.PaymentVendorLog;
 import com.project2.ism.Repository.PaymentProductRepository;
 import com.project2.ism.Repository.PaymentVendorCredentialsRepository;
 import com.project2.ism.Repository.PaymentVendorRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +19,8 @@ import java.util.List;
 @Service
 public class PaymentVendorCredentialsService {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(PaymentVendorCredentialsService.class);
 
     private final PaymentVendorCredentialsRepository paymentVendorCredentialsRepository;
     private final PaymentVendorRepository paymentVendorRepository;
@@ -26,6 +31,10 @@ public class PaymentVendorCredentialsService {
         this.paymentVendorRepository = paymentVendorRepository;
         this.paymentProductRepository = paymentProductRepository;
     }
+
+    private static final String SUREPASS = "SUREPASS";
+    private static final String UAT = "UAT";
+    private static final String PROD = "PROD";
 
     // Create
     public VendorCredentialsResponseDTO create(VendorCredentialsRequestDTO dto) {
@@ -244,6 +253,81 @@ public class PaymentVendorCredentialsService {
                 c.getUserIdProd() == null) {
             throw new RuntimeException("Missing PROD credentials for vendorId = " + c.getPaymentVendor().getId());
         }
+    }
+
+    public VendorCredentialDTO getSurepassCredentials() {
+
+        log.info("Fetching active vendor details for vendor: {}", SUREPASS);
+
+        PaymentVendor vendor = paymentVendorRepository
+                .findByVendorNameAndStatus(
+                        SUREPASS,
+                        true
+                )
+                .orElseThrow(() -> {
+                    log.error("Vendor not found for vendorName: {}", SUREPASS);
+                    return new RuntimeException("SUREPASS vendor not found");
+                });
+
+        log.info("Vendor found. vendorId: {}", vendor.getId());
+
+        PaymentVendorCredentials credentials = paymentVendorCredentialsRepository
+                .findByPaymentVendorAndIsActive(
+                        vendor,
+                        true
+                )
+                .orElseThrow(() -> {
+                    log.error("Active credentials not found for vendorId: {}", vendor.getId());
+                    return new RuntimeException("Active SUREPASS credentials not found");
+                });
+
+        String environment = credentials.getActiveEnvironment();
+
+        log.info("Active environment for vendorId {} is {}",
+                vendor.getId(),
+                environment);
+
+        VendorCredentialDTO dto = new VendorCredentialDTO();
+
+        dto.setEnvironment(environment);
+
+        if (UAT.equalsIgnoreCase(environment)) {
+
+            dto.setBaseUrl(credentials.getBaseUrlUat());
+            dto.setToken(credentials.getSecretKeyUat());
+
+            log.info("Loaded UAT credentials for vendorId: {}",
+                    vendor.getId());
+
+        } else if (PROD.equalsIgnoreCase(environment)) {
+
+            dto.setBaseUrl(credentials.getBaseUrlProd());
+            dto.setToken(credentials.getSecretKeyProd());
+
+
+            log.info("Loaded PROD credentials for vendorId: {}",
+                    vendor.getId());
+
+        } else {
+
+            log.error(
+                    "Invalid active environment '{}' configured for vendorId: {}",
+                    environment,
+                    vendor.getId()
+            );
+
+            throw new RuntimeException(
+                    "Invalid active environment configured: " + environment
+            );
+        }
+
+        log.info(
+                "Successfully fetched credentials for vendorId: {}, environment: {}",
+                vendor.getId(),
+                environment
+        );
+
+        return dto;
     }
 }
 

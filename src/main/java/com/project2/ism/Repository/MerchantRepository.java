@@ -1,6 +1,7 @@
 package com.project2.ism.Repository;
 
 import com.project2.ism.DTO.ReportDTO.MerchantReportDTO;
+import com.project2.ism.Enum.DigilockerStatus;
 import com.project2.ism.Model.Users.Franchise;
 import com.project2.ism.Model.Users.Merchant;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -81,5 +82,7 @@ public interface MerchantRepository extends JpaRepository<Merchant, Long> {
     List<MerchantReportDTO> getMerchantReports();
 
     Optional<Merchant> findByLegalName(String legalName);
+
+    List<Merchant> findByDigilockerStatus(DigilockerStatus status);
 
 }

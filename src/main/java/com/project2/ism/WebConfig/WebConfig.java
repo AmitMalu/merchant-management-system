@@ -29,6 +29,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/js/**",
                         "/images/**",
                         "/razorpay/notification",
+                        "/mosambee/notification",
                         "/admin/logs",
                         "/admin-logs",
                         "/payment-payout/callback"

@@ -2,6 +2,8 @@
 package com.project2.ism.Service;
 
 import com.project2.ism.DTO.*;
+import com.project2.ism.DTO.DigiLockerDTO.DigilockerInitializeRequestDTO;
+import com.project2.ism.Enum.VerificationType;
 import com.project2.ism.Exception.ResourceNotFoundException;
 import com.project2.ism.Model.*;
 import com.project2.ism.Model.InventoryTransactions.ProductSerialNumbers;
@@ -10,6 +12,8 @@ import com.project2.ism.Model.Users.Franchise;
 
 import com.project2.ism.Repository.*;
 import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,6 +30,9 @@ import java.util.stream.Collectors;
 @Transactional
 public class FranchiseService {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(FranchiseService.class);
+
     private final FranchiseRepository franchiseRepository;
     private final FileStorageService fileStorageService;
     private final UserService userService;
@@ -34,11 +41,15 @@ public class FranchiseService {
 
     private final ProductSerialsRepository serialRepo;
     private final OutwardTransactionRepository outwardRepo;
+    private final DigiLockerService digilockerService;
+
 
     private final FranchiseWalletRepository franchiseWalletRepository;
     public FranchiseService(FranchiseRepository franchiseRepository,
                             FileStorageService fileStorageService,
-                            UserService userService, MerchantRepository merchantRepository, MerchantWalletRepository merchantWalletRepository, ProductSerialsRepository serialRepo, OutwardTransactionRepository outwardRepo, FranchiseWalletRepository franchiseWalletRepository) {
+                            UserService userService, MerchantRepository merchantRepository, MerchantWalletRepository merchantWalletRepository,
+                            ProductSerialsRepository serialRepo, OutwardTransactionRepository outwardRepo, FranchiseWalletRepository franchiseWalletRepository,
+                            DigiLockerService digilockerService) {
         this.franchiseRepository = franchiseRepository;
         this.fileStorageService = fileStorageService;
         this.userService = userService;
@@ -47,6 +58,7 @@ public class FranchiseService {
         this.serialRepo = serialRepo;
         this.outwardRepo = outwardRepo;
         this.franchiseWalletRepository = franchiseWalletRepository;
+        this.digilockerService = digilockerService;
     }
 
     public void createFranchise(FranchiseFormDTO dto) {
@@ -127,6 +139,20 @@ public class FranchiseService {
                 "FRANCHISE",
                 null
         );
+
+        try {
+
+            digilockerService.initializeForFranchise(saved);
+
+        } catch (Exception ex) {
+
+            log.error(
+                    "Digilocker initialization failed for franchise id {}",
+                    saved.getId(),
+                    ex
+            );
+
+        }
     }
 
     public List<FranchiseListDTO> getAllFranchisesForList() {

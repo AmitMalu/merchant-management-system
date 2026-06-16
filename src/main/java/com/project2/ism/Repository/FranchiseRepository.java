@@ -3,6 +3,7 @@ package com.project2.ism.Repository;
 
 import com.project2.ism.DTO.FranchiseListDTO;
 import com.project2.ism.DTO.ReportDTO.FranchiseReportsDTO;
+import com.project2.ism.Enum.DigilockerStatus;
 import com.project2.ism.Model.Users.Franchise;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -65,6 +66,8 @@ public interface FranchiseRepository extends JpaRepository<Franchise, Long> {
              f.contactPerson.name, f.contactPerson.phoneNumber, f.contactPerson.email
 """)
     List<FranchiseReportsDTO> getFranchiseReports();
+
+    List<Franchise> findByDigilockerStatus(DigilockerStatus status);
 
 
 }
