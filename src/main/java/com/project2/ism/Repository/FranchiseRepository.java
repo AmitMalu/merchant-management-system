@@ -67,7 +67,4 @@ public interface FranchiseRepository extends JpaRepository<Franchise, Long> {
 """)
     List<FranchiseReportsDTO> getFranchiseReports();
 
-    List<Franchise> findByDigilockerStatus(DigilockerStatus status);
-
-
 }

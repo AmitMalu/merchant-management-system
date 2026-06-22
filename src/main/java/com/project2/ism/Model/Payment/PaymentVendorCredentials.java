@@ -36,13 +36,13 @@ public class PaymentVendorCredentials {
     @Column(name = "base_url_uat")
     private String baseUrlUat;
 
-    @Column(name = "secret_key_uat")
+    @Column(name = "secret_key_uat", columnDefinition = "TEXT")
     private String secretKeyUat; // secretKey from vendor
 
-    @Column(name = "salt_key_uat")
+    @Column(name = "salt_key_uat", columnDefinition = "TEXT")
     private String saltKeyUat;   // ivKey from vendor
 
-    @Column(name = "encrypt_decrypt_key_uat")
+    @Column(name = "encrypt_decrypt_key_uat", columnDefinition = "TEXT")
     private String encryptDecryptKeyUat;
 
     @Column(name = "user_id_uat")
@@ -56,13 +56,13 @@ public class PaymentVendorCredentials {
     @Column(name = "base_url_prod")
     private String baseUrlProd;
 
-    @Column(name = "secret_key_prod")
+    @Column(name = "secret_key_prod", columnDefinition = "TEXT")
     private String secretKeyProd;
 
-    @Column(name = "salt_key_prod")
+    @Column(name = "salt_key_prod", columnDefinition = "TEXT")
     private String saltKeyProd;
 
-    @Column(name = "encrypt_decrypt_key_prod")
+    @Column(name = "encrypt_decrypt_key_prod", columnDefinition = "TEXT")
     private String encryptDecryptKeyProd;
 
     @Column(name = "user_id_prod")

@@ -3,7 +3,6 @@ package com.project2.ism.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project2.ism.DTO.DigiLockerDTO.DigilockerInitializeRequestDTO;
-import com.project2.ism.DTO.DigiLockerDTO.DigilockerInitializeResponseDTO;
 import com.project2.ism.DTO.DigiLockerDTO.SurepassInitializeRequest;
 import com.project2.ism.DTO.DigiLockerDTO.SurepassInitializeResponse;
 import com.project2.ism.DTO.VendorCredentialDTO;
@@ -59,9 +58,8 @@ public class DigiLockerService {
 
         SurepassInitializeRequest request = new SurepassInitializeRequest();
 
-
         SurepassInitializeRequest.Data data = new SurepassInitializeRequest.Data();
-        SurepassInitializeRequest.PrefillOptions options = new SurepassInitializeRequest .PrefillOptions();
+        SurepassInitializeRequest.PrefillOptions options = new SurepassInitializeRequest.PrefillOptions();
 
         options.setFullName(fullName);
         options.setMobileNumber(mobile);
@@ -200,13 +198,11 @@ public class DigiLockerService {
 
             );
 
-
             log.setRequestUrl(
 
                     requestUrl
 
             );
-
 
             log.setRequestBody(
 
@@ -220,7 +216,6 @@ public class DigiLockerService {
 
             );
 
-
             log.setResponseBody(
 
                     objectMapper
@@ -232,7 +227,6 @@ public class DigiLockerService {
                             )
 
             );
-
 
             log.setClientId(
 
@@ -246,13 +240,11 @@ public class DigiLockerService {
 
             );
 
-
             log.setProcessStatus(
 
                     "SUCCESS"
 
             );
-
 
             log.setHttpStatus(
 
@@ -275,7 +267,6 @@ public class DigiLockerService {
 
             );
 
-
             digilockerLogRepository
 
                     .save(
@@ -291,10 +282,7 @@ public class DigiLockerService {
 
                     .getData();
 
-        }
-
-        catch (Exception ex) {
-
+        } catch (Exception ex) {
 
             log.setApiName(
 
@@ -302,20 +290,17 @@ public class DigiLockerService {
 
             );
 
-
             log.setProcessStatus(
 
                     "FAILED"
 
             );
 
-
             log.setErrorMessage(
 
                     ex.getMessage()
 
             );
-
 
             log.setProcessingTimeMs(
 
@@ -326,7 +311,6 @@ public class DigiLockerService {
                             startTime
 
             );
-
 
             digilockerLogRepository
 
@@ -416,20 +400,17 @@ public class DigiLockerService {
 
         );
 
-
         verification.setClientId(
 
                 data.getClientId()
 
         );
 
-
         verification.setDigilockerUrl(
 
                 data.getUrl()
 
         );
-
 
         verification.setStatus(
 
@@ -442,7 +423,6 @@ public class DigiLockerService {
         verification.setPanAvailable(false);
 
         verification.setAadhaarLinked(false);
-
 
         digilockerVerificationRepository
 
@@ -569,7 +549,7 @@ public class DigiLockerService {
 
     ) {
 
-        if(
+        if (
 
                 dto.getVerificationType()
 
@@ -577,7 +557,7 @@ public class DigiLockerService {
 
                         VerificationType.FRANCHISE
 
-        ){
+        ) {
 
             Franchise franchise
 
@@ -610,9 +590,7 @@ public class DigiLockerService {
 
             );
 
-        }
-
-        else{
+        } else {
 
             Merchant merchant
 
