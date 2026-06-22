@@ -81,8 +81,4 @@ public interface MerchantRepository extends JpaRepository<Merchant, Long> {
 """)
     List<MerchantReportDTO> getMerchantReports();
 
-    Optional<Merchant> findByLegalName(String legalName);
-
-    List<Merchant> findByDigilockerStatus(DigilockerStatus status);
-
 }

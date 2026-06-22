@@ -97,7 +97,6 @@ public class MosambeeTransactionService {
 
             log.info("Notification log created. LogId : {}, txnId : {}", logId, txnId);
 
-
             // Step 4: Find existing transaction
             log.debug("Checking existing transaction for txnId : {}", txnId);
 
@@ -123,12 +122,10 @@ public class MosambeeTransactionService {
 
             log.debug("Mapping completed for txnId : {}", txnId);
 
-
             // Step 6: Save transaction
             vendorTransactionsRepository.save(tx);
 
             log.info("Transaction saved successfully. txnId : {}", txnId);
-
 
             // Step 7: Success log
             long time = System.currentTimeMillis() - start;
@@ -138,14 +135,12 @@ public class MosambeeTransactionService {
             log.info("Notification processed successfully. txnId : {}, Time Taken : {} ms",
                     txnId, time);
 
-
             // Step 8: Instant Settlement
             log.info("Checking instant settlement for txnId : {}", txnId);
 
             instantSettlementTrigger.checkAndTrigger(tx.getTransactionReferenceId());
 
             log.info("Instant settlement check completed for txnId : {}", txnId);
-
 
             // Step 9: Franchise / Merchant Notification
             log.info("Processing franchise/merchant notification for txnId : {}", txnId);
@@ -254,6 +249,23 @@ public class MosambeeTransactionService {
                         dto.getTransactionTime()));
 
         tx.setPaymentGateway("MOSAMBEE");
+
+        tx.setCategory(
+                getCategory(dto.getCreditDebitCardType()));
+
+    }
+
+    private String getCategory(String creditDebitCardType) {
+
+        if (creditDebitCardType == null) {
+            return null;
+        }
+
+        return switch (creditDebitCardType.toUpperCase()) {
+            case "DD", "DC" -> "Domestic";
+            case "FD", "FC" -> "Foreign";
+            default -> "Unknown";
+        };
     }
 
 
