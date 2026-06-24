@@ -16,6 +16,9 @@ import com.project2.ism.Repository.DigilockerLogRepository;
 import com.project2.ism.Repository.DigilockerVerificationRepository;
 import com.project2.ism.Repository.FranchiseRepository;
 import com.project2.ism.Repository.MerchantRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +41,12 @@ public class DigiLockerService {
 
     private final ObjectMapper objectMapper;
 
+    private static final Logger log =
+            LoggerFactory.getLogger(DigiLockerService.class);
+
+    @Value("{surepass.api.token}")
+    private String surepassToken;
+
     public DigiLockerService(MerchantRepository merchantRepository, FranchiseRepository franchiseRepository,
                              DigilockerVerificationRepository digilockerVerificationRepository,
                              PaymentVendorCredentialsService vendorCredentialService, RestTemplate restTemplate,
@@ -52,370 +61,265 @@ public class DigiLockerService {
     }
 
 
-    private SurepassInitializeRequest buildRequest(String fullName, String mobile, String email, String state
+    private SurepassInitializeRequest buildRequest(
+            String fullName,
+            String mobile,
+            String email,
+            String state) {
 
-    ) {
+        log.debug(
+                "Building Surepass initialize request for state: {}",
+                state
+        );
 
-        SurepassInitializeRequest request = new SurepassInitializeRequest();
+        SurepassInitializeRequest request =
+                new SurepassInitializeRequest();
 
-        SurepassInitializeRequest.Data data = new SurepassInitializeRequest.Data();
-        SurepassInitializeRequest.PrefillOptions options = new SurepassInitializeRequest.PrefillOptions();
+        SurepassInitializeRequest.Data data =
+                new SurepassInitializeRequest.Data();
+
+        SurepassInitializeRequest.PrefillOptions options =
+                new SurepassInitializeRequest.PrefillOptions();
 
         options.setFullName(fullName);
         options.setMobileNumber(mobile);
         options.setUserEmail(email);
+
         data.setPrefillOptions(options);
+
         data.setExpiryMinutes(10);
         data.setSendSms(false);
         data.setSendEmail(false);
+
         data.setVerifyPhone(false);
         data.setVerifyEmail(false);
+
         data.setSignupFlow(false);
-        data.setRedirectUrl("http://localhost:5173/digilocker-success");
+
+        data.setRedirectUrl(
+                "http://localhost:5173/digilocker-success"
+        );
+
         data.setState(state);
+
         request.setData(data);
 
         return request;
-
     }
 
     private SurepassInitializeResponse.DataResponse callInitializeApi(
-
             String fullName,
-
             String mobile,
-
             String email,
-
-            String state
-
-    ) {
+            String state) {
 
         long startTime = System.currentTimeMillis();
 
-        DigilockerLog log = new DigilockerLog();
+        DigilockerLog apiLog = new DigilockerLog();
+
+        log.info(
+                "Calling Surepass Digilocker Initialize API. State: {}",
+                state
+        );
 
         try {
 
             VendorCredentialDTO vendor =
-
                     vendorCredentialService
-
                             .getSurepassCredentials();
 
-
             SurepassInitializeRequest request =
-
                     buildRequest(
-
                             fullName,
-
                             mobile,
-
                             email,
-
                             state
-
                     );
 
-
-            HttpHeaders headers
-
-                    = new HttpHeaders();
-
+            HttpHeaders headers =
+                    new HttpHeaders();
 
             headers.setContentType(
-
                     MediaType.APPLICATION_JSON
-
             );
 
             headers.setBearerAuth(
-
-                    vendor.getToken()
-
+                    surepassToken
             );
 
-            HttpEntity<SurepassInitializeRequest>
-
-                    entity
-
-                    =
-
+            HttpEntity<SurepassInitializeRequest> entity =
                     new HttpEntity<>(
-
                             request,
-
                             headers
-
                     );
-
 
             String requestUrl =
-
                     vendor.getBaseUrl()
+                            + "/api/v1/digilocker/initialize";
 
-                            +
+            log.info(
+                    "Surepass URL : {}",
+                    requestUrl
+            );
 
-                            "/api/v1/digilocker/initialize";
+            log.debug(
+                    "Surepass Request : {}",
+                    objectMapper.writeValueAsString(request)
+            );
 
-
-            ResponseEntity<SurepassInitializeResponse>
-
-                    response
-
-                    =
-
+            ResponseEntity<SurepassInitializeResponse> response =
                     restTemplate.exchange(
-
                             requestUrl,
-
                             HttpMethod.POST,
-
                             entity,
-
                             SurepassInitializeResponse.class
-
                     );
-
 
             if (response.getBody() == null) {
 
-                throw new RuntimeException(
-
-                        "Surepass returned empty response"
-
+                log.error(
+                        "Surepass returned null response"
                 );
 
+                throw new RuntimeException(
+                        "Surepass returned empty response"
+                );
             }
 
-
-            // SAVE SUCCESS LOG
-
-            log.setApiName(
-
-                    "DIGILOCKER_INITIALIZE"
-
-            );
-
-            log.setRequestUrl(
-
-                    requestUrl
-
-            );
-
-            log.setRequestBody(
-
-                    objectMapper
-
-                            .writeValueAsString(
-
-                                    request
-
-                            )
-
-            );
-
-            log.setResponseBody(
-
-                    objectMapper
-
-                            .writeValueAsString(
-
-                                    response.getBody()
-
-                            )
-
-            );
-
-            log.setClientId(
-
+            log.info(
+                    "Surepass API Success. ClientId: {}",
                     response
-
                             .getBody()
-
                             .getData()
-
                             .getClientId()
-
             );
 
-            log.setProcessStatus(
-
-                    "SUCCESS"
-
+            apiLog.setApiName(
+                    "DIGILOCKER_INITIALIZE"
             );
 
-            log.setHttpStatus(
+            apiLog.setRequestUrl(
+                    requestUrl
+            );
 
+            apiLog.setRequestBody(
+                    objectMapper.writeValueAsString(request)
+            );
+
+            apiLog.setResponseBody(
+                    objectMapper.writeValueAsString(
+                            response.getBody()
+                    )
+            );
+
+            apiLog.setClientId(
                     response
-
-                            .getStatusCode()
-
-                            .value()
-
+                            .getBody()
+                            .getData()
+                            .getClientId()
             );
 
+            apiLog.setProcessStatus(
+                    "SUCCESS"
+            );
 
-            log.setProcessingTimeMs(
+            apiLog.setHttpStatus(
+                    response
+                            .getStatusCode()
+                            .value()
+            );
 
+            apiLog.setProcessingTimeMs(
                     System.currentTimeMillis()
-
-                            -
-
-                            startTime
-
+                            - startTime
             );
 
             digilockerLogRepository
-
-                    .save(
-
-                            log
-
-                    );
-
+                    .save(apiLog);
 
             return response
-
                     .getBody()
-
                     .getData();
 
         } catch (Exception ex) {
 
-            log.setApiName(
+            log.error(
+                    "Failed to initialize Digilocker for state: {}",
+                    state,
+                    ex
+            );
 
+            apiLog.setApiName(
                     "DIGILOCKER_INITIALIZE"
-
             );
 
-            log.setProcessStatus(
-
+            apiLog.setProcessStatus(
                     "FAILED"
-
             );
 
-            log.setErrorMessage(
-
+            apiLog.setErrorMessage(
                     ex.getMessage()
-
             );
 
-            log.setProcessingTimeMs(
-
+            apiLog.setProcessingTimeMs(
                     System.currentTimeMillis()
-
-                            -
-
-                            startTime
-
+                            - startTime
             );
 
             digilockerLogRepository
-
-                    .save(
-
-                            log
-
-                    );
-
+                    .save(apiLog);
 
             throw new RuntimeException(
-
                     "Failed to initialize Digilocker",
-
                     ex
-
             );
-
         }
-
     }
 
     @Transactional
     public void initializeForFranchise(
+            Franchise franchise) {
 
-            Franchise franchise
+        log.info(
+                "Initializing Digilocker for Franchise Id: {}",
+                franchise.getId()
+        );
 
-    ) {
-
-        SurepassInitializeResponse.DataResponse data
-
-                =
-
+        SurepassInitializeResponse.DataResponse data =
                 callInitializeApi(
-
-                        franchise
-
-                                .getLegalName(),
-
-                        franchise
-
-                                .getContactPerson()
-
+                        franchise.getLegalName(),
+                        franchise.getContactPerson()
                                 .getPhoneNumber(),
-
-                        franchise
-
-                                .getContactPerson()
-
+                        franchise.getContactPerson()
                                 .getEmail(),
-
-                        "FRANCHISE_"
-
-                                +
-
-                                franchise.getId()
-
+                        "FRANCHISE_" + franchise.getId()
                 );
 
-
-        DigilockerVerification verification
-
-                =
-
+        DigilockerVerification verification =
                 digilockerVerificationRepository
-
-                        .findByFranchise(
-
-                                franchise
-
-                        )
-
+                        .findByFranchise(franchise)
                         .orElse(
-
                                 new DigilockerVerification()
-
                         );
-
 
         verification.setMerchant(null);
 
         verification.setFranchise(franchise);
 
         verification.setVerificationType(
-
                 VerificationType.FRANCHISE
-
         );
 
         verification.setClientId(
-
                 data.getClientId()
-
         );
 
         verification.setDigilockerUrl(
-
                 data.getUrl()
-
         );
 
         verification.setStatus(
-
                 DigilockerStatus.PENDING
-
         );
 
         verification.setCompleted(false);
@@ -425,9 +329,12 @@ public class DigiLockerService {
         verification.setAadhaarLinked(false);
 
         digilockerVerificationRepository
-
                 .save(verification);
 
+        log.info(
+                "Digilocker initialized successfully for Franchise Id: {}",
+                franchise.getId()
+        );
     }
 
     @Transactional
@@ -438,6 +345,12 @@ public class DigiLockerService {
             VerificationType type
 
     ) {
+        log.info(
+                "Initializing Digilocker for Merchant Id: {}, Type: {}",
+                merchant.getId(),
+                type
+        );
+
         SurepassInitializeResponse.DataResponse data
 
                 =
@@ -540,6 +453,11 @@ public class DigiLockerService {
 
                 );
 
+        log.info(
+                "Digilocker initialized successfully for Merchant Id: {}",
+                merchant.getId()
+        );
+
     }
 
     @Transactional
@@ -548,6 +466,12 @@ public class DigiLockerService {
             DigilockerInitializeRequestDTO dto
 
     ) {
+
+        log.info(
+                "Resend Digilocker requested. Id: {}, Type: {}",
+                dto.getId(),
+                dto.getVerificationType()
+        );
 
         if (
 

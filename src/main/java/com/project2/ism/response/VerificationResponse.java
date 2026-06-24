@@ -4,27 +4,15 @@ public class VerificationResponse {
 
     private String status;
     private String message;
-    private String accountHolderName;
+    private Object data;
 
     public VerificationResponse() {
     }
 
-    public VerificationResponse(
-            String status,
-            String message,
-            String accountHolderName) {
-
+    public VerificationResponse(String status, String message, Object data) {
         this.status = status;
         this.message = message;
-        this.accountHolderName = accountHolderName;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
+        this.data = data;
     }
 
     public String getMessage() {
@@ -35,11 +23,19 @@ public class VerificationResponse {
         this.message = message;
     }
 
-    public String getAccountHolderName() {
-        return accountHolderName;
+    public String getStatus() {
+        return status;
     }
 
-    public void setAccountHolderName(String accountHolderName) {
-        this.accountHolderName = accountHolderName;
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public Object getData() {
+        return data;
+    }
+
+    public void setData(Object data) {
+        this.data = data;
     }
 }

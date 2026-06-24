@@ -140,19 +140,19 @@ public class FranchiseService {
                 null
         );
 
-        try {
-
-            digilockerService.initializeForFranchise(saved);
-
-        } catch (Exception ex) {
-
-            log.error(
-                    "Digilocker initialization failed for franchise id {}",
-                    saved.getId(),
-                    ex
-            );
-
-        }
+//        try {
+//
+//            digilockerService.initializeForFranchise(saved);
+//
+//        } catch (Exception ex) {
+//
+//            log.error(
+//                    "Digilocker initialization failed for franchise id {}",
+//                    saved.getId(),
+//                    ex
+//            );
+//
+//        }
     }
 
     public List<FranchiseListDTO> getAllFranchisesForList() {

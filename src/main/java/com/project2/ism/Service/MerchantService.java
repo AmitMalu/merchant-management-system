@@ -176,22 +176,22 @@ public class MerchantService {
             );
         }
 
-        try {
-
-            if (savedMerchant.getFranchise() == null) {
-
-                digilockerService.initializeForMerchant(savedMerchant, VerificationType.INDEPENDENT_MERCHANT);
-
-            } else {
-                digilockerService.initializeForMerchant(savedMerchant, VerificationType.FRANCHISE_MERCHANT);
-
-            }
-
-        } catch (Exception ex) {
-
-            log.error("Digilocker initialization failed for merchant {}", savedMerchant.getId(), ex);
-
-        }
+//        try {
+//
+//            if (savedMerchant.getFranchise() == null) {
+//
+//                digilockerService.initializeForMerchant(savedMerchant, VerificationType.INDEPENDENT_MERCHANT);
+//
+//            } else {
+//                digilockerService.initializeForMerchant(savedMerchant, VerificationType.FRANCHISE_MERCHANT);
+//
+//            }
+//
+//        } catch (Exception ex) {
+//
+//            log.error("Digilocker initialization failed for merchant {}", savedMerchant.getId(), ex);
+//
+//        }
     }
 
     public List<MerchantListDTO> getAllMerchantsForList() {
