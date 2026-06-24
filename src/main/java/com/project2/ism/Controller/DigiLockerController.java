@@ -2,7 +2,6 @@ package com.project2.ism.Controller;
 
 
 import com.project2.ism.DTO.DigiLockerDTO.DigilockerInitializeRequestDTO;
-import com.project2.ism.DTO.DigiLockerDTO.DigilockerInitializeResponseDTO;
 import com.project2.ism.Service.DigiLockerService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;

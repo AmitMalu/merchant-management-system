@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 public class PaymentVendorCredentials {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.AUTO)
     private Long id;
 
     // ----------------------------------------------------
@@ -36,13 +36,13 @@ public class PaymentVendorCredentials {
     @Column(name = "base_url_uat")
     private String baseUrlUat;
 
-    @Column(name = "secret_key_uat", columnDefinition = "TEXT")
+    @Column(name = "secret_key_uat", columnDefinition = "LONGTEXT")
     private String secretKeyUat; // secretKey from vendor
 
-    @Column(name = "salt_key_uat", columnDefinition = "TEXT")
+    @Column(name = "salt_key_uat", columnDefinition = "LONGTEXT")
     private String saltKeyUat;   // ivKey from vendor
 
-    @Column(name = "encrypt_decrypt_key_uat", columnDefinition = "TEXT")
+    @Column(name = "encrypt_decrypt_key_uat", columnDefinition = "LONGTEXT")
     private String encryptDecryptKeyUat;
 
     @Column(name = "user_id_uat")
@@ -56,13 +56,13 @@ public class PaymentVendorCredentials {
     @Column(name = "base_url_prod")
     private String baseUrlProd;
 
-    @Column(name = "secret_key_prod", columnDefinition = "TEXT")
+    @Column(name = "secret_key_prod", columnDefinition = "LONGTEXT")
     private String secretKeyProd;
 
-    @Column(name = "salt_key_prod", columnDefinition = "TEXT")
+    @Column(name = "salt_key_prod", columnDefinition = "LONGTEXT")
     private String saltKeyProd;
 
-    @Column(name = "encrypt_decrypt_key_prod", columnDefinition = "TEXT")
+    @Column(name = "encrypt_decrypt_key_prod", columnDefinition = "LONGTEXT")
     private String encryptDecryptKeyProd;
 
     @Column(name = "user_id_prod")
