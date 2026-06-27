@@ -17,6 +17,8 @@ import com.project2.ism.Model.Users.BankDetails;
 import com.project2.ism.Model.Users.Franchise;
 import com.project2.ism.Model.Users.Merchant;
 import com.project2.ism.Repository.*;
+import com.project2.ism.request.MerchantSettingsRequest;
+import com.project2.ism.response.MerchantSettingsResponse;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -538,5 +540,86 @@ public class MerchantService {
                 .stream()
                 .map(this::mapToListDTO)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public MerchantSettingsResponse updateMerchantSettings(
+            Long merchantId,
+            MerchantSettingsRequest request) {
+
+        log.info(
+                "Updating merchant settings for merchantId: {}",
+                merchantId
+        );
+
+        Merchant merchant = merchantRepository
+                .findById(merchantId)
+                .orElseThrow(() -> {
+                    log.error(
+                            "Merchant not found for merchantId: {}",
+                            merchantId
+                    );
+                    return new RuntimeException(
+                            "Merchant not found with id: " + merchantId
+                    );
+                });
+
+        MerchantWallet wallet = merchantWalletRepository
+                .findByMerchantId(merchantId)
+                .orElseThrow(() -> {
+                    log.error(
+                            "Merchant wallet not found for merchantId: {}",
+                            merchantId
+                    );
+                    return new RuntimeException(
+                            "Wallet not found for merchant: " + merchantId
+                    );
+                });
+
+        log.info(
+                "Existing settings - MerchantId: {}, CutOffAmount: {}, Payout: {}, CreditCardBillPayment: {}",
+                merchantId,
+                wallet.getCutOfAmount(),
+                merchant.getPayout(),
+                merchant.getCreditCardBillPayment()
+        );
+
+        wallet.setCutOfAmount(request.getLienAmount());
+
+        merchant.setPayout(
+                Boolean.TRUE.equals(request.getPayout())
+        );
+
+        merchant.setCreditCardBillPayment(
+                Boolean.TRUE.equals(
+                        request.getCreditCardBillPayment()
+                )
+        );
+
+        merchantWalletRepository.save(wallet);
+        merchantRepository.save(merchant);
+
+        log.info(
+                "Merchant settings updated successfully. MerchantId: {}, New CutOffAmount: {}, Payout: {}, CreditCardBillPayment: {}",
+                merchantId,
+                wallet.getCutOfAmount(),
+                merchant.getPayout(),
+                merchant.getCreditCardBillPayment()
+        );
+
+        MerchantSettingsResponse response =
+                new MerchantSettingsResponse();
+
+        response.setMerchantId(merchant.getId());
+        response.setLienAmount(wallet.getCutOfAmount());
+        response.setPayout(merchant.getPayout());
+        response.setCreditCardBillPayment(
+                merchant.getCreditCardBillPayment()
+        );
+        response.setMessage(
+                "Merchant settings updated successfully"
+        );
+
+        return response;
     }
 }

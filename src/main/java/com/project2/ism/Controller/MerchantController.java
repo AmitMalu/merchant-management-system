@@ -9,6 +9,8 @@ import com.project2.ism.DTO.MerchantViewDTO;
 import com.project2.ism.Model.Users.Merchant;
 import com.project2.ism.Service.FileStorageService;
 import com.project2.ism.Service.MerchantService;
+import com.project2.ism.request.MerchantSettingsRequest;
+import com.project2.ism.response.MerchantSettingsResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -211,5 +213,20 @@ public class MerchantController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    @PutMapping("/{merchantId}/settings")
+    public ResponseEntity<MerchantSettingsResponse>
+    updateMerchantSettings(
+            @PathVariable Long merchantId,
+            @RequestBody MerchantSettingsRequest request) {
+
+        MerchantSettingsResponse response =
+                merchantService.updateMerchantSettings(
+                        merchantId,
+                        request
+                );
+
+        return ResponseEntity.ok(response);
     }
 }
