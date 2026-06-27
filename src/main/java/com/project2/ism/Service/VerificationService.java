@@ -51,15 +51,16 @@ public class VerificationService {
     // PAN VERIFICATION
     // ====================================================
 
-    public VerificationResponse verifyPan(
-            PanVerificationRequest request) {
+    public VerificationResponse verifyPan(PanVerificationRequest request) {
 
         Long logId = null;
-
-        long start =
-                System.currentTimeMillis();
+        long start = System.currentTimeMillis();
 
         try {
+
+            log.info("========== PAN VERIFICATION START ==========");
+            log.info("PAN Number      : {}", request.getPanNumber());
+            log.info("Full Name       : {}", request.getFullName());
 
             PaymentVendorCredentials credentials =
                     getSurepassCredentials();
@@ -68,234 +69,171 @@ public class VerificationService {
                     getBaseUrl(credentials)
                             + "/api/v1/pan/pan-verify";
 
-            log.info(
-                    "Surepass PAN URL : {}",
-                    url
+            log.info("Surepass PAN URL   : {}", url);
+            log.info("Surepass PAN Token : {}", surepassToken);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(surepassToken);
+
+            log.info("Headers : {}", headers);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("id_number", request.getPanNumber());
+            body.put("full_name", request.getFullName());
+            body.put("dob", "2000-01-01");
+
+            log.info("PAN Request Body : {}", body);
+
+            logId = digilockerLogService.logReceived(
+                    null,
+                    null,
+                    null,
+                    "PAN_VERIFY",
+                    url,
+                    body.toString()
             );
-
-            HttpHeaders headers =
-                    new HttpHeaders();
-
-            headers.setContentType(
-                    MediaType.APPLICATION_JSON
-            );
-
-            headers.setBearerAuth(
-                    surepassToken
-            );
-
-            Map<String, Object> body =
-                    new HashMap<>();
-
-            body.put(
-                    "id_number",
-                    request.getPanNumber()
-            );
-
-            body.put(
-                    "full_name",
-                    request.getFullName()
-            );
-
-            body.put(
-                    "dob",
-                    "2000-01-01"
-            );
-
-            log.info(
-                    "PAN Request Body : {}",
-                    body
-            );
-
-            // ================= LOG REQUEST =================
-
-            logId =
-                    digilockerLogService
-                            .logReceived(
-
-                                    null, // clientId
-
-                                    null, // merchantId
-
-                                    null, // franchiseId
-
-                                    "PAN_VERIFY",
-
-                                    url,
-
-                                    body.toString()
-                            );
-
-            // ===============================================
 
             HttpEntity<Map<String, Object>> entity =
-                    new HttpEntity<>(
-                            body,
-                            headers
-                    );
+                    new HttpEntity<>(body, headers);
+
+            log.info("Calling Surepass PAN API...");
 
             ResponseEntity<Map> response =
                     restTemplate.exchange(
-
                             url,
-
                             HttpMethod.POST,
-
                             entity,
-
                             Map.class
                     );
+
+            log.info("HTTP Status : {}", response.getStatusCodeValue());
 
             Map<String, Object> responseBody =
                     response.getBody();
 
-            log.info(
-                    "Surepass PAN Response : {}",
-                    responseBody
-            );
+            log.info("Raw PAN Response : {}", responseBody);
 
-            boolean success =
-                    responseBody != null
-                            &&
-                            Boolean.TRUE.equals(
-                                    responseBody.get(
-                                            "success"
-                                    )
-                            );
+            if (responseBody == null) {
 
-            if (success) {
-
-                Map<String, Object> data =
-                        (Map<String, Object>)
-                                responseBody.get(
-                                        "data"
-                                );
-
-                digilockerLogService
-                        .logSuccess(
-
-                                logId,
-
-                                responseBody.toString(),
-
-                                response
-                                        .getStatusCodeValue(),
-
-                                System.currentTimeMillis()
-                                        - start
-                        );
+                log.error("Surepass returned NULL response");
 
                 return new VerificationResponse(
-
-                        "SUCCESS",
-
-                        "PAN verified successfully",
-
-                        data
+                        "FAILED",
+                        "Empty response received from Surepass",
+                        null
                 );
             }
 
-            digilockerLogService
-                    .logFailure(
+            Object successObj =
+                    responseBody.get("success");
 
-                            logId,
+            log.info("Success Flag : {}", successObj);
 
-                            responseBody != null
-                                    ? responseBody.toString()
-                                    : null,
+            boolean success =
+                    Boolean.TRUE.equals(successObj);
 
-                            "PAN verification failed",
+            if (!success) {
 
-                            response
-                                    .getStatusCodeValue(),
+                log.error("PAN Verification Failed");
+                log.error("Response : {}", responseBody);
 
-                            System.currentTimeMillis()
-                                    - start
-                    );
+                digilockerLogService.logFailure(
+                        logId,
+                        responseBody.toString(),
+                        "PAN verification failed",
+                        response.getStatusCodeValue(),
+                        System.currentTimeMillis() - start
+                );
+
+                return new VerificationResponse(
+                        "FAILED",
+                        "PAN verification failed",
+                        responseBody
+                );
+            }
+
+            Map<String, Object> data =
+                    (Map<String, Object>) responseBody.get("data");
+
+            log.info("PAN Data : {}", data);
+
+            if (data == null) {
+
+                log.error("Data object missing in response");
+
+                return new VerificationResponse(
+                        "FAILED",
+                        "No data received from Surepass",
+                        null
+                );
+            }
+
+            log.info("PAN Number Returned : {}",
+                    data.get("pan_number"));
+
+            log.info("Full Name Returned : {}",
+                    data.get("full_name"));
+
+            log.info("PAN Status : {}",
+                    data.get("pan_status"));
+
+            digilockerLogService.logSuccess(
+                    logId,
+                    responseBody.toString(),
+                    response.getStatusCodeValue(),
+                    System.currentTimeMillis() - start
+            );
+
+            log.info("========== PAN VERIFIED SUCCESSFULLY ==========");
 
             return new VerificationResponse(
-
-                    "FAILED",
-
-                    "PAN verification failed",
-
-                    null
+                    "SUCCESS",
+                    "PAN verified successfully",
+                    data
             );
 
-        }
+        } catch (HttpClientErrorException ex) {
 
-        catch (HttpClientErrorException ex) {
-
-            log.error(
-                    "Surepass Status Verify PAN : {}",
-                    ex.getStatusCode()
-            );
-
-            log.error(
-                    "Surepass Error Body : {}",
-                    ex.getResponseBodyAsString()
-            );
+            log.error("========== PAN HTTP ERROR ==========");
+            log.error("Status Code : {}", ex.getStatusCode());
+            log.error("Response Body : {}", ex.getResponseBodyAsString(), ex);
 
             if (logId != null) {
 
-                digilockerLogService
-                        .logFailure(
-
-                                logId,
-
-                                ex.getResponseBodyAsString(),
-
-                                ex.getMessage(),
-
-                                ex.getStatusCode()
-                                        .value(),
-
-                                System.currentTimeMillis()
-                                        - start
-                        );
+                digilockerLogService.logFailure(
+                        logId,
+                        ex.getResponseBodyAsString(),
+                        ex.getMessage(),
+                        ex.getStatusCode().value(),
+                        System.currentTimeMillis() - start
+                );
             }
 
             return new VerificationResponse(
-
                     "FAILED",
-
                     ex.getResponseBodyAsString(),
-
                     null
             );
-        }
 
-        catch (Exception ex) {
+        } catch (Exception ex) {
 
-            log.error(
-                    "PAN verification failed",
-                    ex
-            );
+            log.error("========== PAN UNEXPECTED ERROR ==========", ex);
 
             if (logId != null) {
 
-                digilockerLogService
-                        .logFailure(
-
-                                logId,
-
-                                null,
-
-                                ex.getMessage(),
-
-                                500,
-
-                                System.currentTimeMillis()
-                                        - start
-                        );
+                digilockerLogService.logFailure(
+                        logId,
+                        null,
+                        ex.getMessage(),
+                        500,
+                        System.currentTimeMillis() - start
+                );
             }
 
             return new VerificationResponse(
-
                     "FAILED",
-
                     ex.getMessage(),
-
                     null
             );
         }
@@ -305,304 +243,208 @@ public class VerificationService {
     // BANK VERIFICATION
     // ====================================================
 
-    public VerificationResponse verifyBank(
-            BankVerificationRequest request) {
+    public VerificationResponse verifyBank(BankVerificationRequest request) {
 
         Long logId = null;
-
-        long start =
-                System.currentTimeMillis();
+        long start = System.currentTimeMillis();
 
         try {
 
-            log.info(
-                    "Starting Bank Verification for Account: {}, IFSC: {}",
-                    request.getAccountNumber(),
-                    request.getIfsc()
+            log.info("========== BANK VERIFICATION START ==========");
+            log.info("Account Number : {}", request.getAccountNumber());
+            log.info("IFSC           : {}", request.getIfsc());
+
+            PaymentVendorCredentials credentials = getSurepassCredentials();
+
+            String url = getBaseUrl(credentials) + "/api/v1/bank-verification/";
+
+            log.info("Surepass URL   : {}", url);
+            log.info("Surepass Token : {}", surepassToken);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(surepassToken);
+
+            log.info("Headers : {}", headers);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("id_number", request.getAccountNumber());
+            body.put("ifsc", request.getIfsc());
+            body.put("ifsc_details", true);
+
+            log.info("Request Body : {}", body);
+
+            logId = digilockerLogService.logReceived(
+                    null,
+                    null,
+                    null,
+                    "BANK_VERIFY",
+                    url,
+                    body.toString()
             );
-
-            PaymentVendorCredentials credentials =
-                    getSurepassCredentials();
-
-            String url =
-                    getBaseUrl(credentials)
-                            + "/api/v1/bank-verification/";
-
-            log.info(
-                    "Surepass Bank Verification URL: {}",
-                    url
-            );
-
-            HttpHeaders headers =
-                    new HttpHeaders();
-
-            headers.setContentType(
-                    MediaType.APPLICATION_JSON
-            );
-
-            headers.setBearerAuth(
-                    surepassToken
-            );
-
-            Map<String, Object> body =
-                    new HashMap<>();
-
-            body.put(
-                    "id_number",
-                    request.getAccountNumber()
-            );
-
-            body.put(
-                    "ifsc",
-                    request.getIfsc()
-            );
-
-            body.put(
-                    "ifsc_details",
-                    true
-            );
-
-            log.info(
-                    "Bank Verification Request Body: {}",
-                    body
-            );
-
-            // ================= LOG REQUEST =================
-
-            logId =
-                    digilockerLogService
-                            .logReceived(
-
-                                    null, // clientId
-
-                                    null, // merchantId
-
-                                    null, // franchiseId
-
-                                    "BANK_VERIFY",
-
-                                    url,
-
-                                    body.toString()
-                            );
-
-            // ===============================================
 
             HttpEntity<Map<String, Object>> entity =
-                    new HttpEntity<>(
-                            body,
-                            headers
-                    );
+                    new HttpEntity<>(body, headers);
+
+            log.info("Calling Surepass API...");
 
             ResponseEntity<Map> response =
                     restTemplate.exchange(
-
                             url,
-
                             HttpMethod.POST,
-
                             entity,
-
                             Map.class
                     );
+
+            log.info("HTTP Status : {}", response.getStatusCodeValue());
 
             Map<String, Object> responseBody =
                     response.getBody();
 
-            log.info(
-                    "Surepass Bank Verification Response: {}",
-                    responseBody
-            );
+            log.info("Raw Response : {}", responseBody);
 
-            boolean success =
-                    responseBody != null
-                            &&
-                            Boolean.TRUE.equals(
-                                    responseBody.get(
-                                            "success"
-                                    )
-                            );
+            if (responseBody == null) {
 
-            if (success) {
-
-                Map<String, Object> data =
-                        (Map<String, Object>)
-                                responseBody.get(
-                                        "data"
-                                );
-
-                Boolean accountExists =
-                        data != null
-                                ? (Boolean)
-                                data.get(
-                                        "account_exists"
-                                )
-                                : false;
-
-                if (Boolean.TRUE.equals(
-                        accountExists
-                )) {
-
-                    digilockerLogService
-                            .logSuccess(
-
-                                    logId,
-
-                                    responseBody.toString(),
-
-                                    response
-                                            .getStatusCodeValue(),
-
-                                    System.currentTimeMillis()
-                                            - start
-                            );
-
-                    return new VerificationResponse(
-
-                            "SUCCESS",
-
-                            "Bank account verified successfully",
-
-                            data
-                    );
-                }
-
-                digilockerLogService
-                        .logFailure(
-
-                                logId,
-
-                                responseBody.toString(),
-
-                                "Bank account does not exist",
-
-                                response
-                                        .getStatusCodeValue(),
-
-                                System.currentTimeMillis()
-                                        - start
-                        );
+                log.error("Surepass returned NULL response");
 
                 return new VerificationResponse(
-
                         "FAILED",
-
-                        "Bank account does not exist",
-
+                        "Empty response received from Surepass",
                         null
                 );
             }
 
-            digilockerLogService
-                    .logFailure(
+            Object successObj = responseBody.get("success");
 
-                            logId,
+            log.info("Success Flag : {}", successObj);
 
-                            responseBody != null
-                                    ? responseBody.toString()
-                                    : null,
+            boolean success =
+                    Boolean.TRUE.equals(successObj);
 
-                            "Bank account verification failed",
+            if (!success) {
 
-                            response
-                                    .getStatusCodeValue(),
+                log.error("Success flag is false");
 
-                            System.currentTimeMillis()
-                                    - start
-                    );
+                digilockerLogService.logFailure(
+                        logId,
+                        responseBody.toString(),
+                        "Bank verification failed",
+                        response.getStatusCodeValue(),
+                        System.currentTimeMillis() - start
+                );
+
+                return new VerificationResponse(
+                        "FAILED",
+                        "Bank verification failed",
+                        responseBody
+                );
+            }
+
+            Map<String, Object> data =
+                    (Map<String, Object>) responseBody.get("data");
+
+            log.info("Data Section : {}", data);
+
+            if (data == null) {
+
+                log.error("Data object missing");
+
+                return new VerificationResponse(
+                        "FAILED",
+                        "No data received from Surepass",
+                        null
+                );
+            }
+
+            Boolean accountExists =
+                    (Boolean) data.get("account_exists");
+
+            String fullName =
+                    String.valueOf(data.get("full_name"));
+
+            log.info("Account Exists : {}", accountExists);
+            log.info("Account Holder : {}", fullName);
+
+            if (Boolean.TRUE.equals(accountExists)) {
+
+                digilockerLogService.logSuccess(
+                        logId,
+                        responseBody.toString(),
+                        response.getStatusCodeValue(),
+                        System.currentTimeMillis() - start
+                );
+
+                log.info("========== BANK VERIFIED SUCCESSFULLY ==========");
+
+                return new VerificationResponse(
+                        "SUCCESS",
+                        "Bank account verified successfully",
+                        data
+                );
+            }
+
+            digilockerLogService.logFailure(
+                    logId,
+                    responseBody.toString(),
+                    "Account does not exist",
+                    response.getStatusCodeValue(),
+                    System.currentTimeMillis() - start
+            );
+
+            log.error("Account Exists Flag = FALSE");
 
             return new VerificationResponse(
-
                     "FAILED",
-
-                    "Bank account verification failed",
-
-                    null
+                    "Bank account does not exist",
+                    data
             );
 
-        }
+        } catch (HttpClientErrorException ex) {
 
-        catch (HttpClientErrorException ex) {
-
-            log.error(
-                    "Surepass Status Verify Bank : {}",
-                    ex.getStatusCode()
-            );
-
-            log.error(
-                    "Surepass Response : {}",
-                    ex.getResponseBodyAsString()
-            );
+            log.error("========== HTTP ERROR ==========");
+            log.error("Status Code : {}", ex.getStatusCode());
+            log.error("Response    : {}", ex.getResponseBodyAsString(), ex);
 
             if (logId != null) {
 
-                digilockerLogService
-                        .logFailure(
-
-                                logId,
-
-                                ex.getResponseBodyAsString(),
-
-                                ex.getMessage(),
-
-                                ex.getStatusCode()
-                                        .value(),
-
-                                System.currentTimeMillis()
-                                        - start
-                        );
+                digilockerLogService.logFailure(
+                        logId,
+                        ex.getResponseBodyAsString(),
+                        ex.getMessage(),
+                        ex.getStatusCode().value(),
+                        System.currentTimeMillis() - start
+                );
             }
 
             return new VerificationResponse(
-
                     "FAILED",
-
                     ex.getResponseBodyAsString(),
-
                     null
             );
 
-        }
+        } catch (Exception ex) {
 
-        catch (Exception ex) {
-
-            log.error(
-                    "Bank verification failed",
-                    ex
-            );
+            log.error("========== UNEXPECTED ERROR ==========");
+            log.error("Exception : ", ex);
 
             if (logId != null) {
 
-                digilockerLogService
-                        .logFailure(
-
-                                logId,
-
-                                null,
-
-                                ex.getMessage(),
-
-                                500,
-
-                                System.currentTimeMillis()
-                                        - start
-                        );
+                digilockerLogService.logFailure(
+                        logId,
+                        null,
+                        ex.getMessage(),
+                        500,
+                        System.currentTimeMillis() - start
+                );
             }
 
             return new VerificationResponse(
-
                     "FAILED",
-
                     ex.getMessage(),
-
                     null
             );
         }
     }
-
-    // ====================================================
-    // HELPER METHODS
-    // ====================================================
 
     private PaymentVendorCredentials getSurepassCredentials() {
 

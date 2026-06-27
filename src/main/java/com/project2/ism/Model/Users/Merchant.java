@@ -44,6 +44,12 @@ public class Merchant extends CustomerBase {
 
     private boolean isApproved;
 
+    @Column(nullable = false)
+    private Boolean isPayout = false;
+
+    @Column(nullable = false)
+    private Boolean isCreditCardBillPayment = false;
+
     public boolean isApproved() {
         return isApproved;
     }
@@ -107,5 +113,21 @@ public class Merchant extends CustomerBase {
 
     public void setBusinessName(String businessName) {
         this.businessName = businessName;
+    }
+
+    public Boolean getPayout() {
+        return isPayout;
+    }
+
+    public void setPayout(Boolean payout) {
+        isPayout = payout;
+    }
+
+    public Boolean getCreditCardBillPayment() {
+        return isCreditCardBillPayment;
+    }
+
+    public void setCreditCardBillPayment(Boolean creditCardBillPayment) {
+        isCreditCardBillPayment = creditCardBillPayment;
     }
 }
