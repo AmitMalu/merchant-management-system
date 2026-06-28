@@ -113,14 +113,17 @@ public class PayoutService {
             // 1. Validate unique merchant ref
             //validateMerchantRef(request.getMerchantRefId());
 
-            // 2. Calculate charges based on amount and payment mode
+            //2. New Validation
+            validatePayoutSettings(request);
+
+            // 3. Calculate charges based on amount and payment mode
             BigDecimal charges = paymentChargeService.calculateCharges(
                     request.getAmount(), request.getPaymentMode());
             BigDecimal totalDeduction = request.getAmount().add(charges);
 
             log.debug("Calculated charges={} totalDeduction={}", charges, totalDeduction);
 
-            // 3. Validate and lock wallet
+            // 4. Validate and lock wallet
             BigDecimal remainingBalance;
             if ("MERCHANT".equals(request.getInitiatorType())) {
                 remainingBalance = validateAndDeductMerchantBalance(
@@ -132,16 +135,16 @@ public class PayoutService {
                 throw new IllegalArgumentException("Invalid initiator type: " + request.getInitiatorType());
             }
 
-            // 4. Create payout transaction record (status = PENDING)
+            // 5. Create payout transaction record (status = PENDING)
             PayoutTransaction payoutTxn = createPayoutTransaction(request, charges, vendorId);
 
-            // 5. Record in ledger (DEBIT entry)
+            // 6. Record in ledger (DEBIT entry)
             recordInLedger(payoutTxn, remainingBalance);
             request.setMerchantRefId(payoutTxn.getMerchantRefId());
-            // 6. Send to vendor
+            // 7. Send to vendor
             PayoutResult vendorResult = vimoPayClient.submitPayout(vendorId, request, charges);
 
-            // 7. Update payout transaction with vendor response
+            // 8. Update payout transaction with vendor response
             updatePayoutWithVendorResponse(payoutTxn, vendorResult);
 
             log.info("Payout initiated successfully: ref={} vendorTxnId={} status={}",
@@ -803,5 +806,68 @@ public class PayoutService {
 
     private BigDecimal nvl(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private void validatePayoutSettings(
+            PayoutRequest request) {
+
+        if ("MERCHANT".equalsIgnoreCase(request.getInitiatorType())) {
+
+            Merchant merchant = merchantRepo
+                    .findById(request.getInitiatorId())
+                    .orElseThrow(() ->
+                            new RuntimeException(
+                                    "Merchant not found."));
+
+            MerchantWallet wallet = merchantWalletRepo
+                    .findByMerchantId(
+                            request.getInitiatorId())
+                    .orElseThrow(() ->
+                            new RuntimeException(
+                                    "Merchant wallet not found."));
+
+            // Check payout enabled
+            if (!Boolean.TRUE.equals(
+                    merchant.getPayout())) {
+
+                log.warn(
+                        "Payout disabled for merchantId={}",
+                        merchant.getId());
+
+                throw new RuntimeException(
+                        "Payout service is disabled for this merchant.");
+            }
+
+            BigDecimal available =
+                    wallet.getAvailableBalance();
+
+            BigDecimal lien =
+                    wallet.getCutOfAmount();
+
+            BigDecimal remaining =
+                    available.subtract(request.getAmount());
+
+            if (remaining.compareTo(lien) < 0) {
+
+                log.warn(
+                        "Lien validation failed. MerchantId={}, Available={}, Lien={}, Requested={}",
+                        merchant.getId(),
+                        available,
+                        lien,
+                        request.getAmount());
+
+                throw new RuntimeException(
+                        "Insufficient withdrawable balance. Lien amount must be maintained.");
+            }
+
+        } else if ("FRANCHISE".equalsIgnoreCase(request.getInitiatorType())) {
+
+            // Franchise logic if required
+
+        } else {
+
+            throw new RuntimeException(
+                    "Invalid initiator type.");
+        }
     }
 }
