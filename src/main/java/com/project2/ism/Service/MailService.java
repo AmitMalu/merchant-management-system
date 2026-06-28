@@ -39,24 +39,41 @@ public class MailService {
      */
     @Async
     public void sendHtmlEmail(List<String> to, String subject, String htmlBody) {
+
+        log.info("Preparing email. Recipients: {}, Subject: {}", to, subject);
+
         try {
+
             MimeMessage message = mailSender.createMimeMessage();
+
             MimeMessageHelper helper = new MimeMessageHelper(
                     message,
                     MimeMessageHelper.MULTIPART_MODE_MIXED_RELATED,
                     StandardCharsets.UTF_8.name()
             );
 
-            helper.setFrom(new InternetAddress(fromEmail, "UtsabPay"));
+            //helper.setFrom(new InternetAddress(fromEmail, "UtsabPay"));
+            helper.setFrom(new InternetAddress(fromEmail));
             helper.setTo(to.toArray(new String[0]));
             helper.setSubject(subject);
-            helper.setText(htmlBody, true); // true = HTML
+            helper.setText(htmlBody, true);
+
+            log.info("Sending email to {}", to);
 
             mailSender.send(message);
-            log.info("Email sent to {} | Subject: {}", to, subject);
+
+            log.info("Email sent successfully to {} | Subject: {}", to, subject);
 
         } catch (Exception e) {
-            log.error("Email sending failed to {} | Subject: {} | Error: {}", to, subject, e.getMessage(), e);
+
+            log.error(
+                    "Email sending failed. Recipients: {} | Subject: {} | Error: {}",
+                    to,
+                    subject,
+                    e.getMessage(),
+                    e
+            );
+
             throw new RuntimeException("Failed to send email: " + e.getMessage(), e);
         }
     }

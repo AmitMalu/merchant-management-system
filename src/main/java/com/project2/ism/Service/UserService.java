@@ -1,9 +1,12 @@
 package com.project2.ism.Service;
 
+import com.project2.ism.Controller.UserController;
 import com.project2.ism.Exception.ResourceNotFoundException;
 import com.project2.ism.Model.Users.User;
 import com.project2.ism.Repository.UserRepository;
 import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,6 +20,8 @@ import java.util.UUID;
 
 @Service
 public class UserService {
+
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     public static final String TOKEN = UUID.randomUUID().toString();
     private final UserRepository userRepository;
@@ -189,16 +194,32 @@ public class UserService {
     }
 
     public void generateResetToken(String email) {
+
+        log.info("Generating reset token for email: {}", email);
+
         Optional<User> userOptional = userRepository.findByEmail(email);
+
         if (userOptional.isPresent()) {
+
             User user = userOptional.get();
+
+            log.info("User found. UserId: {}, Email: {}", user.getId(), user.getEmail());
+
             String token = UUID.randomUUID().toString();
 
-            user.setResetToken(TOKEN);
+            log.debug("Generated reset token for user {}: {}", user.getId(), token);
+
+            user.setResetToken(token);
             user.setResetTokenExpiry(LocalDateTime.now().plusMinutes(10));
+
             userRepository.save(user);
 
-            String resetLink = "https://portal.utsabpay.com/reset-password?token=" + TOKEN;
+            log.info("Reset token saved successfully for userId: {}", user.getId());
+
+            String resetLink = "https://portal.utsabpay.com/reset-password?token=" + token;
+
+            log.debug("Reset link generated: {}", resetLink);
+
             String htmlMessage = """
                     <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
                         <div style="background:#b71c1c;padding:24px;text-align:center;">
@@ -219,15 +240,65 @@ public class UserService {
                         </div>
                     </div>
                     """.formatted(email, resetLink);
+
+            log.info("Sending password reset email to {}", email);
+
             mailService.sendHtmlEmail(
                     List.of(email),
                     "UtsabPay - Password Reset Request",
                     htmlMessage
             );
+
+            log.info("Password reset email request completed for {}", email);
+
         } else {
+
+            log.warn("No user found with email: {}", email);
+
             throw new ResourceNotFoundException("No user found with this email");
         }
     }
+
+//    public void generateResetToken(String email) {
+//        Optional<User> userOptional = userRepository.findByEmail(email);
+//        if (userOptional.isPresent()) {
+//            User user = userOptional.get();
+//            String token = UUID.randomUUID().toString();
+//
+//            user.setResetToken(TOKEN);
+//            user.setResetTokenExpiry(LocalDateTime.now().plusMinutes(10));
+//            userRepository.save(user);
+//
+//            String resetLink = "https://portal.utsabpay.com/reset-password?token=" + TOKEN;
+//            String htmlMessage = """
+//                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+//                        <div style="background:#b71c1c;padding:24px;text-align:center;">
+//                            <h2 style="color:#ffffff;margin:0;font-size:22px;">Password Reset Request</h2>
+//                        </div>
+//                        <div style="padding:28px 32px;background:#ffffff;">
+//                            <p style="color:#333;font-size:15px;">Hello,</p>
+//                            <p style="color:#555;font-size:14px;">We received a request to reset the password for your UtsabPay account associated with <strong>%s</strong>.</p>
+//                            <p style="color:#555;font-size:14px;">Click the button below to reset your password. This link is valid for <strong>10 minutes</strong>.</p>
+//                            <div style="text-align:center;margin:24px 0;">
+//                                <a href="%s" style="background:#b71c1c;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:15px;display:inline-block;">Reset My Password</a>
+//                            </div>
+//                            <p style="color:#888;font-size:13px;">If you did not request a password reset, you can safely ignore this email. Your account remains secure.</p>
+//                        </div>
+//                        <div style="background:#f5f5f5;padding:14px;text-align:center;">
+//                            <p style="color:#888;font-size:12px;margin:0;">This is an automated email. Please do not reply to this message.</p>
+//                            <p style="color:#888;font-size:12px;margin:4px 0 0;">&copy; UtsabPay. All rights reserved.</p>
+//                        </div>
+//                    </div>
+//                    """.formatted(email, resetLink);
+//            mailService.sendHtmlEmail(
+//                    List.of(email),
+//                    "UtsabPay - Password Reset Request",
+//                    htmlMessage
+//            );
+//        } else {
+//            throw new ResourceNotFoundException("No user found with this email");
+//        }
+//    }
 
     public enum ResetStatus {
         SUCCESS,
@@ -237,31 +308,53 @@ public class UserService {
 
     @Transactional
     public ResetStatus resetPassword(String token, String newPassword) {
+
+        log.info("Starting password reset for token: {}", token);
+
         Optional<User> userOptional = userRepository.findByResetToken(token);
 
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
+        if (userOptional.isEmpty()) {
+            log.warn("Invalid reset token: {}", token);
+            return ResetStatus.INVALID;
+        }
 
-            if (user.getResetTokenExpiry() == null || user.getResetTokenExpiry().isBefore(LocalDateTime.now())) {
-                return ResetStatus.EXPIRED;
-            }
+        User user = userOptional.get();
+
+        log.info("User found with email: {}", user.getEmail());
+
+        if (user.getResetTokenExpiry() == null) {
+            log.warn("Reset token expiry is null for user: {}", user.getEmail());
+            return ResetStatus.EXPIRED;
+        }
+
+        if (user.getResetTokenExpiry().isBefore(LocalDateTime.now())) {
+            log.warn("Reset token expired for user: {}", user.getEmail());
+            return ResetStatus.EXPIRED;
+        }
+
+        try {
 
             user.setPassword(passwordEncoder.encode(newPassword));
             user.setResetToken(null);
             user.setResetTokenExpiry(null);
 
-            // ✅ Set password expiry and last changed timestamp
             user.setPasswordLastChangedAt(LocalDateTime.now());
-            user.setPasswordExpiryDate(LocalDateTime.now().plusDays(passwordExpiryDays));
+            user.setPasswordExpiryDate(
+                    LocalDateTime.now().plusDays(passwordExpiryDays));
 
             userRepository.save(user);
+
+            log.info("Password reset successful for user: {}", user.getEmail());
+
             return ResetStatus.SUCCESS;
+
+        } catch (Exception ex) {
+
+            log.error("Failed to reset password for user: {}", user.getEmail(), ex);
+
+            throw ex;
         }
-
-        return ResetStatus.INVALID;
     }
-
-
 
     // Add new enum values
     public enum ChangePasswordStatus {
