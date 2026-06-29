@@ -59,29 +59,23 @@ public class VerificationService {
         try {
 
             log.info("========== PAN VERIFICATION START ==========");
-            log.info("PAN Number      : {}", request.getPanNumber());
-            log.info("Full Name       : {}", request.getFullName());
 
             PaymentVendorCredentials credentials =
                     getSurepassCredentials();
 
             String url =
                     getBaseUrl(credentials)
-                            + "/api/v1/pan/pan-verify";
+                            + "/api/v1/pan/pan-comprehensive";
 
             log.info("Surepass PAN URL   : {}", url);
-            log.info("Surepass PAN Token : {}", surepassToken);
+            //log.info("Surepass PAN Token : {}", surepassToken);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(surepassToken);
 
-            log.info("Headers : {}", headers);
-
             Map<String, Object> body = new HashMap<>();
             body.put("id_number", request.getPanNumber());
-            body.put("full_name", request.getFullName());
-            body.put("dob", "2000-01-01");
 
             log.info("PAN Request Body : {}", body);
 
@@ -256,16 +250,13 @@ public class VerificationService {
 
             PaymentVendorCredentials credentials = getSurepassCredentials();
 
-            String url = getBaseUrl(credentials) + "/api/v1/bank-verification/";
+            String url = getBaseUrl(credentials) + "/api/v1/bank-verification/pennyless";
 
             log.info("Surepass URL   : {}", url);
-            log.info("Surepass Token : {}", surepassToken);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(surepassToken);
-
-            log.info("Headers : {}", headers);
 
             Map<String, Object> body = new HashMap<>();
             body.put("id_number", request.getAccountNumber());
