@@ -229,4 +229,14 @@ public class MerchantController {
 
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/{merchantId}/settings")
+    public ResponseEntity<MerchantSettingsResponse> getMerchantSettings(
+            @PathVariable Long merchantId) {
+
+        MerchantSettingsResponse response =
+                merchantService.getMerchantSettings(merchantId);
+
+        return ResponseEntity.ok(response);
+    }
 }

@@ -587,13 +587,11 @@ public class MerchantService {
         wallet.setCutOfAmount(request.getLienAmount());
 
         merchant.setPayout(
-                Boolean.TRUE.equals(request.getPayout())
+                Boolean.TRUE.equals(request.getIsPayout())
         );
 
         merchant.setCreditCardBillPayment(
-                Boolean.TRUE.equals(
-                        request.getCreditCardBillPayment()
-                )
+                Boolean.TRUE.equals(request.getIsCreditCardBillPayment())
         );
 
         merchantWalletRepository.save(wallet);
@@ -612,12 +610,61 @@ public class MerchantService {
 
         response.setMerchantId(merchant.getId());
         response.setLienAmount(wallet.getCutOfAmount());
-        response.setPayout(merchant.getPayout());
-        response.setCreditCardBillPayment(
+        response.setIsPayout(merchant.getPayout());
+        response.setIsCreditCardBillPayment(
                 merchant.getCreditCardBillPayment()
         );
         response.setMessage(
                 "Merchant settings updated successfully"
+        );
+
+        return response;
+    }
+
+    @Transactional
+    public MerchantSettingsResponse getMerchantSettings(
+            Long merchantId) {
+
+        log.info(
+                "Fetching merchant settings for merchantId={}",
+                merchantId
+        );
+
+        Merchant merchant = merchantRepository
+                .findById(merchantId)
+                .orElseThrow(() -> {
+                    log.error(
+                            "Merchant not found: {}",
+                            merchantId
+                    );
+                    return new RuntimeException(
+                            "Merchant not found.");
+                });
+
+        MerchantWallet wallet = merchantWalletRepository
+                .findByMerchantId(merchantId)
+                .orElseThrow(() -> {
+                    log.error(
+                            "Wallet not found for merchantId={}",
+                            merchantId
+                    );
+                    return new RuntimeException(
+                            "Wallet not found.");
+                });
+
+        MerchantSettingsResponse response =
+                new MerchantSettingsResponse();
+
+        response.setMerchantId(merchant.getId());
+        response.setLienAmount(wallet.getCutOfAmount());
+        response.setIsPayout(merchant.getPayout());
+        response.setIsCreditCardBillPayment(
+                merchant.getCreditCardBillPayment()
+        );
+
+        log.info(
+                "Merchant settings fetched successfully for merchantId={}",
+                merchantId
         );
 
         return response;
