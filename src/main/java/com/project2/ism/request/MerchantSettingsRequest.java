@@ -5,9 +5,7 @@ import java.math.BigDecimal;
 public class MerchantSettingsRequest {
 
     private BigDecimal lienAmount;
-
     private Boolean isPayout;
-
     private Boolean isCreditCardBillPayment;
 
     public BigDecimal getLienAmount() {
@@ -18,19 +16,19 @@ public class MerchantSettingsRequest {
         this.lienAmount = lienAmount;
     }
 
-    public Boolean getPayout() {
+    public Boolean getIsPayout() {
         return isPayout;
     }
 
-    public void setPayout(Boolean payout) {
-        isPayout = payout;
+    public void setIsPayout(Boolean isPayout) {
+        this.isPayout = isPayout;
     }
 
-    public Boolean getCreditCardBillPayment() {
+    public Boolean getIsCreditCardBillPayment() {
         return isCreditCardBillPayment;
     }
 
-    public void setCreditCardBillPayment(Boolean creditCardBillPayment) {
-        isCreditCardBillPayment = creditCardBillPayment;
+    public void setIsCreditCardBillPayment(Boolean isCreditCardBillPayment) {
+        this.isCreditCardBillPayment = isCreditCardBillPayment;
     }
 }
