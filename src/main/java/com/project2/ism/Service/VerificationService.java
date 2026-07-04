@@ -287,7 +287,7 @@ public class VerificationService {
                             Map.class
                     );
 
-            log.info("HTTP Status : {}", response.getStatusCodeValue());
+            log.info("PAN HTTP Status : {}", response.getStatusCodeValue());
 
             Map<String, Object> responseBody =
                     response.getBody();
@@ -296,7 +296,7 @@ public class VerificationService {
 
             if (responseBody == null) {
 
-                log.error("Surepass returned NULL response");
+                log.error("PAN Surepass returned NULL response");
 
                 return new VerificationResponse(
                         "FAILED",
