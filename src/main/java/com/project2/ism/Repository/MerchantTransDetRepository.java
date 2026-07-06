@@ -29,53 +29,22 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
     @Query("SELECT COALESCE(SUM(m.amount), 0) FROM MerchantTransactionDetails m WHERE m.transactionDate BETWEEN :startDate AND :endDate")
     BigDecimal sumAmountByTransactionDateBetween(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
 
-
     Long countByTranStatusAndTransactionDateBetween(String success, LocalDateTime localDateTime, LocalDateTime localDateTime1);
 
 
-
-//new for reports lets see if they work
-//    @Query("SELECT mtd FROM MerchantTransactionDetails mtd WHERE " +
-//            "mtd.transactionDate BETWEEN :startDate AND :endDate " +
-//            "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
-//            "AND (:status IS NULL OR mtd.tranStatus = :status) " +
-//            "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
-//            "ORDER BY mtd.transactionDate DESC")
-//    Page<MerchantTransactionDetails> findMerchantTransactionsByFilters(
-//            @Param("startDate") LocalDateTime startDate,
-//            @Param("endDate") LocalDateTime endDate,
-//            @Param("merchantId") Long merchantId,
-//            @Param("status") String status,
-//            @Param("transactionType") String transactionType,
-//            Pageable pageable);
-//    // Query based on settlement date instead of transaction date
-//    @Query("SELECT mtd FROM MerchantTransactionDetails mtd WHERE " +
-//            "mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
-//            "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
-//            "AND (:status IS NULL OR mtd.tranStatus = :status) " +
-//            "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
-//            "ORDER BY mtd.updatedDateAndTimeOfTransaction DESC")
-//    Page<MerchantTransactionDetails> findMerchantTransactionsBySettlementDateFilters(
-//            @Param("startDate") LocalDateTime startDate,
-//            @Param("endDate") LocalDateTime endDate,
-//            @Param("merchantId") Long merchantId,
-//            @Param("status") String status,
-//            @Param("transactionType") String transactionType,
-//            Pageable pageable);
-
     @Query("SELECT new com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO(" +
-            "mtd.transactionId ,mtd.vendorTransactionId, mtd.actionOnBalance,mtd.transactionDate, mtd.amount, " +
+            "mtd.transactionId, mtd.vendorTransactionId, mtd.actionOnBalance, mtd.transactionDate, mtd.amount, " +
             "mtd.updatedDateAndTimeOfTransaction, vt.authCode, vt.tid, " +
-            "mtd.netAmount, mtd.grossCharge, ftd.netAmount, mtd.charge, " + // left join ftd for franchise commission
+            "mtd.netAmount, mtd.grossCharge, ftd.netAmount, mtd.charge, " +
             "vt.brandType, vt.cardType, vt.cardClassification, " +
-            "mtd.merchant.businessName, ftd.franchise.franchiseName, mtd.tranStatus, mtd.service) " +
+            "mtd.merchant.businessName, ftd.franchise.franchiseName, mtd.tranStatus, mtd.service, " +
+            "mtd.remarks, mtd.balBeforeTran, mtd.balAfterTran) " +
             "FROM MerchantTransactionDetails mtd " +
             "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
             "LEFT JOIN FranchiseTransactionDetails ftd ON ftd.vendorTransactionId = mtd.vendorTransactionId " +
             "AND ftd.franchise.id = mtd.merchant.franchise.id " +
             "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
-//            "AND (:status IS NULL OR mtd.tranStatus = :status) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
             "ORDER BY mtd.transactionDate DESC")
     Page<MerchantTransactionReportDTO> findMerchantTransactionsByFilters(
@@ -87,20 +56,20 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             Pageable pageable);
 
     @Query("SELECT new com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO(" +
-            "mtd.transactionId, mtd.vendorTransactionId, mtd.actionOnBalance,mtd.transactionDate, mtd.amount, " +
+            "mtd.transactionId, mtd.vendorTransactionId, mtd.actionOnBalance, mtd.transactionDate, mtd.amount, " +
             "mtd.updatedDateAndTimeOfTransaction, vt.authCode, vt.tid, " +
             "mtd.netAmount, mtd.grossCharge, ftd.netAmount, mtd.charge, " +
             "vt.brandType, vt.cardType, vt.cardClassification, " +
-            "mtd.merchant.businessName, ftd.franchise.franchiseName, mtd.tranStatus, mtd.service) " +
+            "mtd.merchant.businessName, ftd.franchise.franchiseName, mtd.tranStatus, mtd.service, " +
+            "mtd.remarks, mtd.balBeforeTran, mtd.balAfterTran) " +
             "FROM MerchantTransactionDetails mtd " +
             "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
             "LEFT JOIN FranchiseTransactionDetails ftd ON ftd.vendorTransactionId = mtd.vendorTransactionId " +
             "AND ftd.franchise.id = mtd.merchant.franchise.id " +
-            "WHERE mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
+            "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
-//            "AND (:status IS NULL OR mtd.tranStatus = :status) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
-            "ORDER BY mtd.updatedDateAndTimeOfTransaction DESC")
+            "ORDER BY mtd.transactionDate DESC")
     Page<MerchantTransactionReportDTO> findMerchantTransactionsBySettlementDateFilters(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
@@ -199,53 +168,6 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
 
     // for export excel
     // In MerchantTransactionRepository
-
-    // Transaction date based - with merchant type filter
-//    @Query("SELECT new com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO(" +
-//            "mtd.transactionId, mtd.vendorTransactionId, mtd.actionOnBalance, mtd.transactionDate, mtd.amount, " +
-//            "mtd.updatedDateAndTimeOfTransaction, vt.authCode, vt.tid, " +
-//            "mtd.netAmount, mtd.grossCharge, ftd.netAmount, mtd.charge, " +
-//            "vt.brandType, vt.cardType, vt.cardClassification, " +
-//            "mtd.merchant.businessName, ftd.franchise.franchiseName, mtd.tranStatus, mtd.service) " +
-//            "FROM MerchantTransactionDetails mtd " +
-//            "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
-//            "LEFT JOIN FranchiseTransactionDetails ftd ON ftd.vendorTransactionId = mtd.vendorTransactionId " +
-//            "AND ftd.franchise.id = mtd.merchant.franchise.id " +
-//            "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
-//            "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
-//            "AND (:merchantType IS NULL OR " +
-//            "     (:merchantType = 'DIRECT' AND mtd.merchant.franchise IS NULL) OR " +
-//            "     (:merchantType = 'FRANCHISE' AND mtd.merchant.franchise IS NOT NULL)) " +
-//            "ORDER BY mtd.transactionDate DESC")
-//    Stream<MerchantTransactionReportDTO> streamAllMerchantTransactionsByFilters(
-//            @Param("startDate") LocalDateTime startDate,
-//            @Param("endDate") LocalDateTime endDate,
-//            @Param("transactionType") String transactionType,
-//            @Param("merchantType") String merchantType);
-//
-//    // Settlement date based - with merchant type filter
-//    @Query("SELECT new com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO(" +
-//            "mtd.transactionId, mtd.vendorTransactionId, mtd.actionOnBalance, mtd.transactionDate, mtd.amount, " +
-//            "mtd.updatedDateAndTimeOfTransaction, vt.authCode, vt.tid, " +
-//            "mtd.netAmount, mtd.grossCharge, ftd.netAmount, mtd.charge, " +
-//            "vt.brandType, vt.cardType, vt.cardClassification, " +
-//            "mtd.merchant.businessName, ftd.franchise.franchiseName, mtd.tranStatus, mtd.service) " +
-//            "FROM MerchantTransactionDetails mtd " +
-//            "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
-//            "LEFT JOIN FranchiseTransactionDetails ftd ON ftd.vendorTransactionId = mtd.vendorTransactionId " +
-//            "AND ftd.franchise.id = mtd.merchant.franchise.id " +
-//            "WHERE mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
-//            "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
-//            "AND (:merchantType IS NULL OR " +
-//            "     (:merchantType = 'DIRECT' AND mtd.merchant.franchise IS NULL) OR " +
-//            "     (:merchantType = 'FRANCHISE' AND mtd.merchant.franchise IS NOT NULL)) " +
-//            "ORDER BY mtd.updatedDateAndTimeOfTransaction DESC")
-//    Stream<MerchantTransactionReportDTO> streamAllMerchantTransactionsBySettlementDateFilters(
-//            @Param("startDate") LocalDateTime startDate,
-//            @Param("endDate") LocalDateTime endDate,
-//            @Param("transactionType") String transactionType,
-//            @Param("merchantType") String merchantType);
-    /// /-------
     /**
      * Stream all merchant transactions with proper handling of different transaction types
      * Handles both settlement transactions (with vendor data) and wallet transactions (PAYOUT/REFUND)
@@ -274,7 +196,10 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "mtd.merchant.businessName, " +
             "CASE WHEN mtd.service IN ('PAYOUT', 'PAYOUT_REFUND') THEN null ELSE ftd.franchise.franchiseName END, " +
             "mtd.tranStatus, " +
-            "mtd.service) " +
+            "mtd.service, " +
+            "mtd.remarks, " +
+            "mtd.balBeforeTran, " +
+            "mtd.balAfterTran) " +
             "FROM MerchantTransactionDetails mtd " +
             "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
             "AND mtd.service NOT IN ('PAYOUT', 'PAYOUT_REFUND') " +
@@ -312,7 +237,10 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "mtd.merchant.businessName, " +
             "CASE WHEN mtd.service IN ('PAYOUT', 'PAYOUT_REFUND') THEN null ELSE ftd.franchise.franchiseName END, " +
             "mtd.tranStatus, " +
-            "mtd.service) " +
+            "mtd.service, " +
+            "mtd.remarks, " +
+            "mtd.balBeforeTran, " +
+            "mtd.balAfterTran) " +
             "FROM MerchantTransactionDetails mtd " +
             "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
             "AND mtd.service NOT IN ('PAYOUT', 'PAYOUT_REFUND') " +
@@ -330,52 +258,6 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("endDate") LocalDateTime endDate,
             @Param("transactionType") String transactionType,
             @Param("merchantType") String merchantType);
-
-
-
-//    @Query("SELECT " +
-//            "COUNT(mtd) as totalTransactions, " +
-//            "COALESCE(SUM(mtd.amount), 0) as totalAmount, " +
-//            "COALESCE(SUM(mtd.netAmount), 0) as totalNetAmount, " +
-//            "COALESCE(SUM(mtd.charge), 0) as totalCharges, " +
-//            "COALESCE(AVG(mtd.amount), 0) as averageAmount, " +
-//            "COUNT(CASE WHEN mtd.tranStatus = 'SETTLED' THEN 1 END) as successCount, " +
-//            "COUNT(CASE WHEN mtd.tranStatus != 'SETTLED' THEN 1 END) as failureCount " +
-//            "FROM MerchantTransactionDetails mtd WHERE " +
-//            "mtd.transactionDate BETWEEN :startDate AND :endDate " +
-//            "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
-//            //"AND (:status IS NULL OR mtd.tranStatus = :status) " +
-//            "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType)")
-//    Map<String, Object> getMerchantTransactionSummary(
-//            @Param("startDate") LocalDateTime startDate,
-//            @Param("endDate") LocalDateTime endDate,
-//            @Param("merchantId") Long merchantId,
-//            @Param("status") String status,
-//            @Param("transactionType") String transactionType);
-//
-//    // Summary based on settlement date
-//    @Query("SELECT " +
-//            "COUNT(mtd) as totalTransactions, " +
-//            "COALESCE(SUM(mtd.amount), 0) as totalAmount, " +
-//            "COALESCE(SUM(mtd.netAmount), 0) as totalNetAmount, " +
-//            "COALESCE(SUM(mtd.grossCharge), 0) as totalCharges, " +
-//            "COALESCE(AVG(mtd.amount), 0) as averageAmount, " +
-//            "COUNT(CASE WHEN mtd.tranStatus = 'SETTLED' THEN 1 END) as successCount, " +
-//            "COUNT(CASE WHEN mtd.tranStatus != 'SETTLED' THEN 1 END) as failureCount " +
-//            "FROM MerchantTransactionDetails mtd WHERE " +
-//            "mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
-//            "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
-//           //"AND (:status IS NULL OR mtd.tranStatus = :status) " +
-//            "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType)")
-//    Map<String, Object> getMerchantTransactionSummaryBySettlementDate(
-//            @Param("startDate") LocalDateTime startDate,
-//            @Param("endDate") LocalDateTime endDate,
-//            @Param("merchantId") Long merchantId,
-//            @Param("status") String status,
-//            @Param("transactionType") String transactionType);
-
-
-
 
     @Query("SELECT mtd.transactionType, COUNT(mtd), SUM(mtd.amount) " +
             "FROM MerchantTransactionDetails mtd WHERE " +

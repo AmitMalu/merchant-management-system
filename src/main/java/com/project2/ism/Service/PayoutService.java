@@ -756,7 +756,7 @@ public class PayoutService {
             int size
     ) {
 
-        // 🔹 Date handling
+        // Date handling
         if (startDate == null && endDate == null) {
             endDate = LocalDate.now();
             startDate = endDate.minusDays(7);
@@ -769,7 +769,7 @@ public class PayoutService {
             }
         }
 
-        // 🔹 Service handling
+        // Service handling
         List<String> services;
         if (service == null || "BOTH".equalsIgnoreCase(service)) {
             services = List.of("PAYOUT", "PAYOUT_REFUND");

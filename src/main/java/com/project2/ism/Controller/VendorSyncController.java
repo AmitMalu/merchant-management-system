@@ -21,4 +21,12 @@ public class VendorSyncController {
         vimoPayClientService.fetchAndSaveAll(vendorId);
         return ResponseEntity.ok().body("Sync completed");
     }
+
+    @PostMapping("/{vendorId}/sync-bbps")
+    public ResponseEntity<?> syncVimoCreditCardListApi(@PathVariable Long vendorId) {
+        vimoPayClientService.fetchAndSaveAllCreditCard(vendorId);
+        return ResponseEntity.ok().body("Sync completed");
+    }
+
+
 }
