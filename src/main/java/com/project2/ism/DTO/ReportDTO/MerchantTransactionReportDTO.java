@@ -41,6 +41,9 @@ public class MerchantTransactionReportDTO {
     private String franchiseName;
     private String state;
     private String service;
+    private String remarks;
+    private BigDecimal balBeforeTran;
+    private BigDecimal balAfterTran;
 
     /**
      * Enhanced constructor with explicit PAYOUT/REFUND handling
@@ -65,7 +68,10 @@ public class MerchantTransactionReportDTO {
             String merchantName,
             String franchiseName,
             String state,
-            String service
+            String service,
+            String remarks,
+            BigDecimal balBeforeTran,
+            BigDecimal balAfterTran
     ) {
         // Basic fields - always populated
         this.customTxnId = customTxnId;
@@ -77,9 +83,13 @@ public class MerchantTransactionReportDTO {
         this.merchantName = merchantName;
         this.state = state;
         this.service = service;
+        this.remarks = remarks;
+        this.balBeforeTran = balBeforeTran;
+        this.balAfterTran = balAfterTran;
 
         // Store raw values
         this.grossCharge = grossCharge;
+
 
         // ============== WALLET TRANSACTIONS (PAYOUT/REFUND) ==============
         if (isWalletTransaction(service)) {
@@ -400,5 +410,29 @@ public class MerchantTransactionReportDTO {
 
     public void setService(String service) {
         this.service = service;
+    }
+
+    public String getRemarks() {
+        return remarks;
+    }
+
+    public void setRemarks(String remarks) {
+        this.remarks = remarks;
+    }
+
+    public BigDecimal getBalBeforeTran() {
+        return balBeforeTran;
+    }
+
+    public void setBalBeforeTran(BigDecimal balBeforeTran) {
+        this.balBeforeTran = balBeforeTran;
+    }
+
+    public BigDecimal getBalAfterTran() {
+        return balAfterTran;
+    }
+
+    public void setBalAfterTran(BigDecimal balAfterTran) {
+        this.balAfterTran = balAfterTran;
     }
 }
