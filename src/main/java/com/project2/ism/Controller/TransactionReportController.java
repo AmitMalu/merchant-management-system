@@ -305,7 +305,8 @@ public class TransactionReportController {
             @RequestParam(value = "transactionType", required = false) String transactionType,
             @RequestParam(value = "dateFilterType", defaultValue = "TRANSACTION_DATE") String dateFilterType,
             @RequestParam(value = "merchantType", required = false) String merchantType, // NEW PARAM
-            @RequestParam(value = "includeTaxes", defaultValue = "false") Boolean includeTaxes) {
+            @RequestParam(value = "includeTaxes", defaultValue = "false") Boolean includeTaxes,
+            @RequestParam(value = "merchantId", required = false) Long merchantId) {
 
         logger.info("Exporting all merchant transactions: startDate={}, endDate={}, dateFilter={}, merchantType={}, includeTaxes={}",
                 startDate, endDate, dateFilterType, merchantType, includeTaxes);
@@ -318,7 +319,7 @@ public class TransactionReportController {
             request.setTransactionType(transactionType);
             request.setDateFilterType(dateFilterType);
             request.setMerchantType(merchantType); // NEW: DIRECT, FRANCHISE, or null
-            request.setMerchantId(null); // null means ALL merchants of selected type
+            request.setMerchantId(merchantId); // null means ALL merchants of selected type
 
             String userRole = getUserRoleFromSecurityContext();
 

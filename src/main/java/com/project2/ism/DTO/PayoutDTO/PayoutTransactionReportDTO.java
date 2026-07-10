@@ -7,6 +7,8 @@ public interface PayoutTransactionReportDTO {
 
     Long getTransactionId();
 
+    BigDecimal getCharge();
+
     BigDecimal getAmount();
 
     BigDecimal getBalAfterTran();

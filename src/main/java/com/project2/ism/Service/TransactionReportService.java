@@ -737,6 +737,7 @@ public class TransactionReportService {
         headerRow.createCell(colNum++).setCellValue("Transaction ID");
         headerRow.createCell(colNum++).setCellValue("Vendor Transaction ID");
         headerRow.createCell(colNum++).setCellValue("Service");  // NEW: Service type (Settlement/PAYOUT/PAYOUT_REFUND)
+        headerRow.createCell(colNum++).setCellValue("Remarks");
         headerRow.createCell(colNum++).setCellValue("Action");
         headerRow.createCell(colNum++).setCellValue("Transaction Date");
         headerRow.createCell(colNum++).setCellValue("Settlement Date");
@@ -778,6 +779,7 @@ public class TransactionReportService {
         headerRow.createCell(colNum++).setCellValue("Transaction ID");
         headerRow.createCell(colNum++).setCellValue("Vendor Transaction ID");
         headerRow.createCell(colNum++).setCellValue("Service");  // NEW: Service type (COMMISSION/PAYOUT/PAYOUT_REFUND)
+       // headerRow.createCell(colNum++).setCellValue("Remarks");
         headerRow.createCell(colNum++).setCellValue("Action");
         headerRow.createCell(colNum++).setCellValue("Transaction Date");
         headerRow.createCell(colNum++).setCellValue("Settlement Date");
@@ -820,6 +822,7 @@ public class TransactionReportService {
         setCellValue(row, colNum++, dto.getCustomTxnId());
         setCellValue(row, colNum++, dto.getTxnId());
         setCellValue(row, colNum++, dto.getService());  // NEW: Service column
+        setCellValue(row, colNum++, dto.getRemarks());
         setCellValue(row, colNum++, dto.getActionOnBalance());
         setCellValue(row, colNum++, dto.getTxnDate());
         setCellValue(row, colNum++, dto.getSettleDate());
@@ -873,6 +876,7 @@ public class TransactionReportService {
         setCellValue(row, colNum++, dto.getCustomTxnId());
         setCellValue(row, colNum++, dto.getTxnId());
         setCellValue(row, colNum++, dto.getService());  // NEW: Service column
+       // setCellValue(row, colNum++, dto.getRemarks());
         setCellValue(row, colNum++, dto.getActionOnBalance());
         setCellValue(row, colNum++, dto.getTxnDate());
         setCellValue(row, colNum++, dto.getSettleDate());
@@ -1270,6 +1274,7 @@ public class TransactionReportService {
                     .streamAllMerchantTransactionsBySettlementDateFilters(
                             request.getStartDate(),
                             request.getEndDate(),
+                            request.getMerchantId(),
                             request.getTransactionType(),
                             merchantType);
         } else {
@@ -1277,6 +1282,7 @@ public class TransactionReportService {
                     .streamAllMerchantTransactionsByFilters(
                             request.getStartDate(),
                             request.getEndDate(),
+                            request.getMerchantId(),
                             request.getTransactionType(),
                             merchantType);
         }

@@ -1,7 +1,5 @@
 package com.project2.ism.Service;
 
-
-
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project2.ism.DTO.PaymentDTO.*;
@@ -16,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -40,6 +39,7 @@ public class VimoPayClientService {
     private final VendorStateService vendorStateService;
     private final VendorPurposeService vendorPurposeService;
     private final VendorBillerCategoryService vendorBillerCategoryService;
+    private final VendorBillerCodeService vendorBillerCodeService;
     private final PaymentVendorResponseLogRepository paymentVendorResponseLogRepository;
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -64,6 +64,9 @@ public class VimoPayClientService {
     @Value("${vimo.api.path.payout}")
     private String PAYOUT_PATH;
 
+    @Value("${vimo.api.path.bbps.token}")
+    private String BBPS_TOKEN_PATH;
+
     @Value("${vimo.api.path.biller.category.list}")
     private String BILLER_CATEGORY_LIST;
 
@@ -77,6 +80,7 @@ public class VimoPayClientService {
                                 VendorStateService vendorStateService,
                                 VendorPurposeService vendorPurposeService,
                                 VendorBillerCategoryService vendorBillerCategoryService,
+                                VendorBillerCodeService vendorBillerCodeService,
                                 PaymentVendorResponseLogRepository paymentVendorResponseLogRepository,
                                 ObjectMapper objectMapper,
                                 WebClient.Builder webClientBuilder) {
@@ -86,6 +90,7 @@ public class VimoPayClientService {
         this.vendorStateService = vendorStateService;
         this.vendorPurposeService = vendorPurposeService;
         this.vendorBillerCategoryService = vendorBillerCategoryService;
+        this.vendorBillerCodeService = vendorBillerCodeService;
         this.paymentVendorResponseLogRepository = paymentVendorResponseLogRepository;
         this.objectMapper = objectMapper;
         this.webClient = webClientBuilder
@@ -122,16 +127,28 @@ public class VimoPayClientService {
         }
 
         // 1) Get token
-        String token = obtainToken(vendorId, baseUrl, true);
+        String token = obtainTokenForBbps(vendorId, baseUrl, true);
 
         // 2) Fetch each list and save to DB (decrypting responses)
         fetchAndSaveBillerCategoryList(vendorId, baseUrl, token);
-       // fetchAndSaveBillerCodeList(vendorId, baseUrl, token);
 
-//        fetchAndSaveBanks(vendorId, baseUrl, token);
-//        fetchAndSaveStates(vendorId, baseUrl, token);
-//        fetchAndSavePurposes(vendorId, baseUrl, token);
     }
+
+    public void fetchAndSaveAllCreditCardBillerCode( Long vendorId, String billerCode) {
+        // Get base URL
+        String baseUrl = credentialsService.getBaseUrl(vendorId);
+        if (baseUrl == null) {
+            throw new RuntimeException("Base URL is not configured for vendor: " + vendorId);
+        }
+
+        // 1) Get token
+        String token = obtainTokenForBbps(vendorId, baseUrl, true);
+
+        // 2) Fetch each list and save to DB (decrypting responses)
+        fetchAndSaveBillerCodeList(vendorId, baseUrl, token, billerCode);
+
+    }
+
 
     /* ------------------------ token management ------------------------ */
 
@@ -159,7 +176,27 @@ public class VimoPayClientService {
         }
     }
 
-    private String buildTokenRequestPayload(Long vendorId) {
+    public String obtainTokenForBbps(Long vendorId, String baseUrl, boolean forceRefresh) {
+        if (!forceRefresh) {
+            String t = cachedToken.get();
+            if (t != null) return t;
+        }
+
+        synchronized (this) {
+            // double-check
+            if (!forceRefresh) {
+                String t = cachedToken.get();
+                if (t != null) return t;
+            }
+
+            String token = callTokenApiForBbps(vendorId, baseUrl);
+            cachedToken.set(token);
+            tokenFetchedAt.set(Instant.now());
+            return token;
+        }
+    }
+
+    public String buildTokenRequestPayload() {
         try {
             Map<String, String> payload = new LinkedHashMap<>();
             payload.put("requestTime", String.valueOf(System.currentTimeMillis()));
@@ -174,7 +211,7 @@ public class VimoPayClientService {
      */
     private String callTokenApi(Long vendorId, String baseUrl) {
 
-        String url = concat(baseUrl, TOKEN_PATH);
+        String url = concat(baseUrl, BBPS_TOKEN_PATH);
 
         String requestPayload = "N/A";
         String encryptedRequest = "N/A";
@@ -184,7 +221,7 @@ public class VimoPayClientService {
 
         try {
             // Build request payload
-            requestPayload = buildTokenRequestPayload(vendorId);
+            requestPayload = buildTokenRequestPayload();
 
             // Encrypt request
             encryptedRequest = cryptoService.encryptForVendor(vendorId, requestPayload);
@@ -268,6 +305,71 @@ public class VimoPayClientService {
         }
     }
 
+    private String callTokenApiForBbps(Long vendorId, String baseUrl) {
+
+        String url = concat(baseUrl, BBPS_TOKEN_PATH);
+
+        try {
+
+            log.info("========== Calling BBPS Token API ==========");
+            log.info("Vendor Id : {}", vendorId);
+            log.info("URL       : {}", url);
+
+            HttpHeaders headers = new HttpHeaders();
+
+            headers.set("secretKey", credentialsService.getSecretKey(vendorId));
+            headers.set("saltKey", credentialsService.getSaltKey(vendorId));
+            headers.set("encryptdecryptKey", credentialsService.getEncryptDecryptKey(vendorId));
+            headers.set("userId", credentialsService.getUserId(vendorId));
+
+            log.info("Request Headers:");
+            log.info("secretKey          : {}", credentialsService.getSecretKey(vendorId));
+            log.info("saltKey            : {}", credentialsService.getSaltKey(vendorId));
+            log.info("encryptdecryptKey  : {}", credentialsService.getEncryptDecryptKey(vendorId));
+            log.info("userId             : {}", credentialsService.getUserId(vendorId));
+
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            RestTemplate restTemplate = new RestTemplate();
+
+            ResponseEntity<VendorApiResponse> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.POST,
+                    entity,
+                    VendorApiResponse.class
+            );
+
+            log.info("Response Status : {}", response.getStatusCode());
+
+            if (response.getBody() == null) {
+                log.error("Empty response received from BBPS Token API");
+                throw new RuntimeException("Empty response from token API");
+            }
+
+            VendorApiResponse apiResponse = response.getBody();
+
+            log.info("Response Body : {}", apiResponse);
+
+            if (!"000".equals(apiResponse.getResponseCode())) {
+                log.error("Token API Failed. Response Code : {}, Message : {}",
+                        apiResponse.getResponseCode(),
+                        apiResponse.getMessage());
+
+                throw new RuntimeException(apiResponse.getMessage());
+            }
+
+            log.info("BBPS Token generated successfully.");
+            log.info("============================================");
+
+            return apiResponse.getData();
+
+        } catch (Exception e) {
+
+            log.error("Error while calling BBPS Token API", e);
+
+            throw new RuntimeException("Token API failed", e);
+        }
+    }
 
     /* ------------------------ generic GET/POST helpers ------------------------ */
 
@@ -316,7 +418,7 @@ public class VimoPayClientService {
         }
     }
 
-    private VendorApiResponse callPostEncrypted(Long vendorId, String baseUrl, String path,
+    public VendorApiResponse callPostEncrypted(Long vendorId, String baseUrl, String path,
                                                 String token, String encryptedPayload, String plainJson) {
 
         String url = concat(baseUrl, path);
@@ -389,22 +491,6 @@ public class VimoPayClientService {
             throw new RuntimeException(e);
         }
     }
-
-
-//    public PayoutCallback handleEncryptedCallback(Long vendorId, Map<String, Object> encryptedBody) {
-//        try {
-//            String encrypted = (String) encryptedBody.get("data");
-//            if (encrypted == null) throw new RuntimeException("Missing encrypted data");
-//
-//            String decryptedJson = cryptoService.decryptFromVendor(vendorId, encrypted);
-//
-//            return objectMapper.readValue(decryptedJson, PayoutCallback.class);
-//
-//        } catch (Exception e) {
-//            log.error("Failed to decrypt vendor callback", e);
-//            throw new RuntimeException("Invalid callback payload");
-//        }
-//    }
 
     public PayoutCallback handleEncryptedCallback(Long vendorId, Map<String, Object> body) {
 
@@ -537,22 +623,75 @@ public class VimoPayClientService {
         }
     }
 
-//    private void fetchAndSaveBillerCodeList(Long vendorId, String baseUrl, String token) {
-//        // Attempt with token; on 401 refresh token once and retry
-//        try {
-//            VendorApiResponse wrapper = callGetEncrypted(vendorId, baseUrl, BILLER_CODE_LIST, token);
-//            handleEncryptedListResponseForBanks(vendorId, wrapper);
-//        } catch (WebClientResponseException e) {
-//            if (e.getRawStatusCode() == 401) {
-//                log.info("Banks API 401 -> refreshing token and retrying");
-//                String newToken = obtainToken(vendorId, baseUrl, true);
-//                VendorApiResponse wrapper = callGetEncrypted(vendorId, baseUrl, BANKS_PATH, newToken);
-//                handleEncryptedListResponseForBanks(vendorId, wrapper);
-//            } else {
-//                throw e;
-//            }
-//        }
-//    }
+    private void fetchAndSaveBillerCodeList(
+            Long vendorId,
+            String baseUrl,
+            String token,
+            String billerCategoryCode
+    ) {
+        try {
+            log.info("Fetching BBPS biller code list | vendorId={} | billerCategoryCode={}",
+                    vendorId, billerCategoryCode);
+
+            Map<String, Object> requestMap = new HashMap<>();
+            requestMap.put("billerCategoryCode", billerCategoryCode);
+
+            String plainJson = objectMapper.writeValueAsString(requestMap);
+
+            String encryptedPayload = cryptoService.encryptForVendor(vendorId, plainJson);
+
+            VendorApiResponse wrapper = callPostEncrypted(
+                    vendorId,
+                    baseUrl,
+                    BILLER_CODE_LIST,
+                    token,
+                    encryptedPayload,
+                    plainJson
+            );
+
+            handleEncryptedListResponseForBillerCode(vendorId, billerCategoryCode, wrapper);
+
+        } catch (WebClientResponseException e) {
+
+            if (e.getRawStatusCode() == 401) {
+                log.info("Biller Code API 401 -> refreshing token and retrying");
+
+                String newToken = obtainToken(vendorId, baseUrl, true);
+
+                try {
+                    Map<String, Object> requestMap = new HashMap<>();
+                    requestMap.put("billerCategoryCode", billerCategoryCode);
+
+                    String plainJson = objectMapper.writeValueAsString(requestMap);
+                    String encryptedPayload = cryptoService.encryptForVendor(vendorId, plainJson);
+
+                    VendorApiResponse wrapper = callPostEncrypted(
+                            vendorId,
+                            baseUrl,
+                            BILLER_CODE_LIST,
+                            newToken,
+                            encryptedPayload,
+                            plainJson
+                    );
+
+                    handleEncryptedListResponseForBillerCode(vendorId, billerCategoryCode, wrapper);
+
+                } catch (Exception ex) {
+                    log.error("Biller Code API retry failed | vendorId={} | billerCategoryCode={}",
+                            vendorId, billerCategoryCode, ex);
+                    throw new RuntimeException("Biller Code API retry failed", ex);
+                }
+
+            } else {
+                throw e;
+            }
+
+        } catch (Exception e) {
+            log.error("Biller Code API failed | vendorId={} | billerCategoryCode={}",
+                    vendorId, billerCategoryCode, e);
+            throw new RuntimeException("Biller Code API failed", e);
+        }
+    }
 
     private void handleEncryptedListResponseForBanks(Long vendorId, VendorApiResponse wrapper) {
         if (wrapper == null) throw new RuntimeException("Empty wrapper for banks");
@@ -613,6 +752,22 @@ public class VimoPayClientService {
         try {
             List<BillerCategoryListDto> list = objectMapper.readValue(decrypted, new TypeReference<List<BillerCategoryListDto>>() {});
             vendorBillerCategoryService.saveVendorBillerCategoryList(vendorId, list);
+        } catch (Exception e) {
+            log.error("Failed to parse purpose list", e);
+            throw new RuntimeException("Failed to parse purpose list", e);
+        }
+    }
+
+    private void handleEncryptedListResponseForBillerCode(Long vendorId, String billerCategoryCode, VendorApiResponse wrapper) {
+        if (wrapper == null) throw new RuntimeException("Empty wrapper for purposes");
+        if (!"000".equals(wrapper.getResponseCode())) {
+            throw new RuntimeException("Biller Category API returned: " + wrapper.getMessage());
+        }
+        String enc = wrapper.getData();
+        String decrypted = cryptoService.decryptFromVendor(vendorId, enc);
+        try {
+            List<BillerCodeListDto> list = objectMapper.readValue(decrypted, new TypeReference<List<BillerCodeListDto>>() {});
+            vendorBillerCodeService.saveVendorBillerCodeList(vendorId, billerCategoryCode, list);
         } catch (Exception e) {
             log.error("Failed to parse purpose list", e);
             throw new RuntimeException("Failed to parse purpose list", e);

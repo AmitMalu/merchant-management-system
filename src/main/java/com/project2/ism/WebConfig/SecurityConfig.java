@@ -54,6 +54,10 @@ public class SecurityConfig {
 
                         .requestMatchers("/mosambee/notification").permitAll()
 
+                        .requestMatchers("/payment-vimo/**").permitAll()
+
+                        .requestMatchers("/vidual-pay/credit-card/**").permitAll()
+
                         .requestMatchers(
                                 "/payment-payout/callback",
                                 "/tools/encrypt/**"

@@ -207,6 +207,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "AND ftd.franchise.id = mtd.merchant.franchise.id " +
             "AND mtd.service NOT IN ('PAYOUT', 'PAYOUT_REFUND') " +
             "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
+            "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
             "AND (:merchantType IS NULL OR " +
             "     (:merchantType = 'DIRECT' AND mtd.merchant.franchise IS NULL) OR " +
@@ -215,6 +216,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
     Stream<MerchantTransactionReportDTO> streamAllMerchantTransactionsByFilters(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
+            @Param("merchantId") Long merchantId,
             @Param("transactionType") String transactionType,
             @Param("merchantType") String merchantType);
 
@@ -248,6 +250,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "AND ftd.franchise.id = mtd.merchant.franchise.id " +
             "AND mtd.service NOT IN ('PAYOUT', 'PAYOUT_REFUND') " +
             "WHERE mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
+            "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
             "AND (:merchantType IS NULL OR " +
             "     (:merchantType = 'DIRECT' AND mtd.merchant.franchise IS NULL) OR " +
@@ -256,6 +259,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
     Stream<MerchantTransactionReportDTO> streamAllMerchantTransactionsBySettlementDateFilters(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
+            @Param("merchantId") Long merchantId,
             @Param("transactionType") String transactionType,
             @Param("merchantType") String merchantType);
 
@@ -488,6 +492,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
     SELECT
         t.transactionId,
         t.amount,
+        t.charge,
         t.balAfterTran,
         t.balBeforeTran,
         t.remarks,
@@ -499,7 +504,8 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
     FROM (
         SELECT
             m.transaction_id        AS transactionId,
-            m.amount                AS amount,
+            (ABS(m.amount) - COALESCE(m.charge, 0)) AS amount,
+            COALESCE(m.charge, 0)   AS charge,
             m.bal_after_tran        AS balAfterTran,
             m.bal_before_tran       AS balBeforeTran,
             m.remarks               AS remarks,
@@ -517,7 +523,8 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
 
         SELECT
             f.transaction_id        AS transactionId,
-            f.amount                AS amount,
+            (ABS(f.amount) - COALESCE(f.charge, 0)) AS amount,
+            COALESCE(f.charge, 0)   AS charge,
             f.bal_after_tran        AS balAfterTran,
             f.bal_before_tran       AS balBeforeTran,
             f.remarks               AS remarks,
