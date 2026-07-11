@@ -763,6 +763,10 @@ public class TransactionReportService {
             headerRow.createCell(colNum++).setCellValue("GST %");
         }
 
+        // Balance columns
+        headerRow.createCell(colNum++).setCellValue("Bal Before");
+        headerRow.createCell(colNum++).setCellValue("Bal After");
+
         // Card details - will be empty for PAYOUT/REFUND
         headerRow.createCell(colNum++).setCellValue("Brand Type");
         headerRow.createCell(colNum++).setCellValue("Card Type");
@@ -859,6 +863,10 @@ public class TransactionReportService {
             }
         }
 
+        // Balance columns
+        setCellValue(row, colNum++, dto.getBalBeforeTran());
+        setCellValue(row, colNum++, dto.getBalAfterTran());
+
         // Card details (will be empty for PAYOUT/REFUND)
         setCellValue(row, colNum++, dto.getBrandType());
         setCellValue(row, colNum++, dto.getCardType());
@@ -925,7 +933,7 @@ public class TransactionReportService {
      * UPDATED: Auto-size columns with correct count including Service column
      */
     private void autoSizeColumns(Sheet sheet, Boolean includeTaxes, String userRole, String merchantType) {
-        int baseColumns = 15; // Base columns for merchant (added 1 for Service)
+        int baseColumns = 17; // Base columns for merchant (16 core + 2 balance columns: Bal Before, Bal After)
         int extraColumns = 0;
 
         if (Objects.equals(merchantType, "FRANCHISE")) {
