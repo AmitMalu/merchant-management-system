@@ -66,12 +66,29 @@ public class VidualPayCreditCardService {
                         plainJson
                 );
 
+        // Check for vendor-level error before attempting decryption
+        if (!"000".equals(response.getResponseCode())) {
+            log.error("Biller Details API returned error | responseCode={} | message={} | billerCode={}",
+                    response.getResponseCode(), response.getMessage(), billerCode);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("responseCode", response.getResponseCode());
+            errorResponse.put("message", response.getMessage());
+            errorResponse.put("billerCode", billerCode);
+            return errorResponse;
+        }
+
+        if (response.getData() == null) {
+            log.error("Biller Details API returned null data | billerCode={}", billerCode);
+            throw new RuntimeException("Empty data in vendor response for billerCode: " + billerCode);
+        }
+
         String decrypted =
                 cryptoService.decryptFromVendor(
                         vendorId,
                         response.getData()
                 );
 
-        return objectMapper.readValue(decrypted,Object.class);
+        return objectMapper.readValue(decrypted, Object.class);
     }
 }
