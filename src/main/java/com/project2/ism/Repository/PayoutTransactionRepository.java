@@ -1,7 +1,9 @@
 package com.project2.ism.Repository;
 
 import com.project2.ism.Model.Payout.PayoutTransaction;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -39,4 +41,15 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
 
     List<PayoutTransaction> findByStatusAndCreatedAtBefore(
             PayoutTransaction.PayoutStatus status, LocalDateTime cutoffTime);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p
+            FROM PayoutTransaction p
+            WHERE p.ledgerMerchantTxnId = :transactionId
+            """)
+    Optional<PayoutTransaction> findByIdForManualUpdate(
+            @Param("transactionId")
+            Long payoutTransactionId
+    );
 }

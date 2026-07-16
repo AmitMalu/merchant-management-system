@@ -32,6 +32,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/mosambee/notification",
                         "/payment-vimo/**",
                         "/vidual-pay/credit-card/**",
+                        "/update-transaction/**",    //remove this later
                         "/admin/logs",
                         "/admin-logs",
                         "/payment-payout/callback"
