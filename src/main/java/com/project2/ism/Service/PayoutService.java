@@ -644,6 +644,23 @@ public class PayoutService {
         }
     }
 
+    public void refundPayoutForManualFailure(PayoutTransaction payoutTransaction) {
+
+        log.info(
+                "Manual refund started. payoutId={}, merchantRefId={}",
+                payoutTransaction.getId(),
+                payoutTransaction.getMerchantRefId()
+        );
+
+        refundToWallet(payoutTransaction);
+
+        log.info(
+                "Manual refund completed. payoutId={}, merchantRefId={}",
+                payoutTransaction.getId(),
+                payoutTransaction.getMerchantRefId()
+        );
+    }
+
     private void refundToWallet(PayoutTransaction payoutTxn) {
         log.info("Refunding failed payout: ref={} amount={}",
                 payoutTxn.getMerchantRefId(), payoutTxn.getTotalDeducted());
@@ -680,7 +697,10 @@ public class PayoutService {
         refundEntry.setTransactionType("CREDIT");
         refundEntry.setService("PAYOUT_REFUND");
         refundEntry.setVendorTransactionId(payoutTxn.getVendorTxnId());
-        refundEntry.setRemarks("Refund for failed payout - " + payoutTxn.getResponseMessage());
+        refundEntry.setRemarks(
+                "Refund for failed payout - " + payoutTxn.getResponseMessage() +
+                        " | Beneficiary A/C: " + payoutTxn.getBeneficiaryAccountNumber());
+
         merchantTxnRepo.save(refundEntry);
 
         log.debug("Refunded merchant {} wallet: amount={}", payoutTxn.getInitiatorId(), payoutTxn.getTotalDeducted());

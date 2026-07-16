@@ -56,7 +56,9 @@ public class SecurityConfig {
 
                         .requestMatchers("/payment-vimo/**").permitAll()
 
-                        .requestMatchers("/vidual-pay/credit-card/**").permitAll()
+                        .requestMatchers("/vidual-pay/credit-card/**").permitAll()   //remove this later
+
+                        .requestMatchers("/update-transaction/**").permitAll()      //remove this later
 
                         .requestMatchers(
                                 "/payment-payout/callback",
