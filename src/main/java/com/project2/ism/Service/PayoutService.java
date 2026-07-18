@@ -696,7 +696,7 @@ public class PayoutService {
         refundEntry.setTranStatus("SUCCESS");
         refundEntry.setTransactionType("CREDIT");
         refundEntry.setService("PAYOUT_REFUND");
-        refundEntry.setVendorTransactionId(payoutTxn.getVendorTxnId());
+        //refundEntry.setVendorTransactionId(payoutTxn.getVendorTxnId());
         refundEntry.setRemarks(
                 "Refund for failed payout - " + payoutTxn.getResponseMessage() +
                         " | Beneficiary A/C: " + payoutTxn.getBeneficiaryAccountNumber());
