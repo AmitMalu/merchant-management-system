@@ -106,62 +106,221 @@ public class ExcelParser {
         return list;
     }
 
-    private VendorTransactions mapRowToTransaction(Row r, Map<String, Integer> colIndex, DataFormatter fmt) {
+    private VendorTransactions mapRowToTransaction(
+            Row row,
+            Map<String, Integer> colIndex,
+            DataFormatter fmt
+    ) {
+
         VendorTransactions t = new VendorTransactions();
 
-        t.setTransactionReferenceId(get(r, colIndex, "ID", fmt));
-        t.setDate(parseDate(get(r, colIndex, "Date", fmt)));
-        t.setMobile(get(r, colIndex, "Mobile", fmt));
-        t.setEmail(get(r, colIndex, "Email", fmt));
-        t.setConsumer(get(r, colIndex, "Consumer", fmt));
-        t.setUsername(get(r, colIndex, "Username", fmt));
-        t.setType(get(r, colIndex, "Type", fmt));
-        t.setMode(get(r, colIndex, "Mode", fmt));
-        t.setAmount(parseBig(get(r, colIndex, "Amount", fmt)));
-        t.setTip(parseBig(get(r, colIndex, "Tip", fmt)));
-        t.setCashAtPos(parseBig(get(r, colIndex, "Cash at POS", fmt)));
-        t.setTxnType(get(r, colIndex, "Txn Type", fmt));
-        t.setAuthCode(get(r, colIndex, "Auth Code", fmt));
-        t.setCard(get(r, colIndex, "Card", fmt));
-        t.setIssuingBank(get(r, colIndex, "Issuing Bank", fmt));
-        t.setCardType(get(r, colIndex, "Card Type", fmt));
-        t.setBrandType(get(r, colIndex, "Brand Type", fmt));
-        t.setCardClassification(get(r, colIndex, "Card Classification", fmt));
-        t.setCardTxnType(get(r, colIndex, "Card Txn Type", fmt));
-        t.setRrn(get(r, colIndex, "RRN", fmt));
-        t.setInvoiceNumber(get(r, colIndex, "Invoice#", fmt));
-        t.setDeviceSerial(get(r, colIndex, "Device Serial", fmt));
-        t.setMerchant(get(r, colIndex, "Merchant", fmt));
-        t.setCategory(get(r, colIndex, "Category", fmt));
-        t.setStatus(get(r, colIndex, "Status", fmt));
-        t.setSettledOn(parseDate(get(r, colIndex, "Settled On", fmt)));
-        t.setLabels(get(r, colIndex, "Labels", fmt));
-        t.setMid(getMidOrTid(r, colIndex, "MID"));
-        t.setTid(getMidOrTid(r, colIndex, "TID"));
-        t.setBatchNumber(get(r, colIndex, "Batch#", fmt));
-        t.setRef(get(r, colIndex, "Ref#", fmt));
-        t.setRef1(get(r, colIndex, "Ref# 1", fmt));
-        t.setRef2(get(r, colIndex, "Ref# 2", fmt));
-        t.setRef3(get(r, colIndex, "Ref# 3", fmt));
-        t.setRef4(get(r, colIndex, "Ref# 4", fmt));
-        t.setRef5(get(r, colIndex, "Ref# 5", fmt));
-        t.setRef6(get(r, colIndex, "Ref# 6", fmt));
-        t.setRef7(get(r, colIndex, "Ref# 7", fmt));
-        t.setOriginalTransactionId(get(r, colIndex, "Original Transaction Id", fmt));
-        t.setReceiptNo(get(r, colIndex, "Receipt No", fmt));
-        t.setErrorCode(get(r, colIndex, "Error Code", fmt));
-        t.setAdditionalInformation(get(r, colIndex, "Additional Information", fmt));
-        t.setPgErrorCode(get(r, colIndex, "PG Error Code", fmt));
-        t.setPgErrorMessage(get(r, colIndex, "PG Error Message", fmt));
-        t.setLatitude(get(r, colIndex, "Latitude", fmt));
-        t.setLongitude(get(r, colIndex, "Longitude", fmt));
-        t.setPayer(get(r, colIndex, "Payer", fmt));
-        t.setTidLocation(get(r, colIndex, "TID Location", fmt));
-        t.setDxMode(get(r, colIndex, "DX Mode", fmt));
-        t.setAcquiringBank(get(r, colIndex, "Acquiring Bank", fmt));
-        t.setIssuingBankAlt(get(r, colIndex, "Issuing Bank.1", fmt));
+        // Transaction ID
+        t.setTransactionReferenceId(
+                get(row, colIndex, "Transaction ID", fmt)
+        );
+
+        // Date
+        t.setDate(
+                parseDate(get(row, colIndex, "Date", fmt))
+        );
+
+        // Amount
+        t.setAmount(
+                parseBig(get(row, colIndex, "Amount", fmt))
+        );
+
+        // TIP Amount
+        t.setTip(
+                parseBig(get(row, colIndex, "TIP Amount", fmt))
+        );
+
+        // Approval Code
+        t.setAuthCode(
+                get(row, colIndex, "Approval Code", fmt)
+        );
+
+        // Batch Number
+        t.setBatchNumber(
+                get(row, colIndex, "Batch No", fmt)
+        );
+
+        // Card Network
+        t.setBrandType(
+                get(row, colIndex, "Card Network", fmt)
+        );
+
+        // Payment Mode
+        t.setCard(
+                get(row, colIndex, "Payment Mode", fmt)
+        );
+
+        // Card Colour
+        t.setCardClassification(
+                get(row, colIndex, "Card Colour", fmt)
+        );
+
+        // Customer Payment Mode ID
+        t.setCardLastFourDigit(
+                get(row, colIndex, "Customer Payment Mode ID", fmt)
+        );
+
+        // Card Type
+        t.setCardType(
+                get(row, colIndex, "Card Type", fmt)
+        );
+
+        // Card Issuer
+        t.setIssuingBank(
+                get(row, colIndex, "Card Issuer", fmt)
+        );
+
+        // Store Name
+        t.setMerchant(
+                get(row, colIndex, "Store Name", fmt)
+        );
+
+        // MID
+        t.setMid(
+                getMidOrTid(row, colIndex, "MID")
+        );
+
+        // TID
+        t.setTid(
+                getMidOrTid(row, colIndex, "TID")
+        );
+
+        // City
+        t.setTidLocation(
+                get(row, colIndex, "City", fmt)
+        );
+
+        // Hardware ID
+        t.setDeviceSerial(
+                get(row, colIndex, "Hardware ID", fmt)
+        );
+
+        // Device Model
+        t.setDxMode(
+                get(row, colIndex, "Device Model", fmt)
+        );
+
+        // Acquirer
+        t.setAcquiringBank(
+                get(row, colIndex, "Acquirer", fmt)
+        );
+
+        // Invoice
+        t.setInvoiceNumber(
+                get(row, colIndex, "Invoice", fmt)
+        );
+
+        // Settlement Date
+        t.setRef(
+                get(row, colIndex, "Settlement Date", fmt)
+        );
+
+        // RRN
+        t.setRrn(
+                get(row, colIndex, "RRN", fmt)
+        );
+
+        // Batch Status
+        t.setStatus(
+                get(row, colIndex, "Batch Status", fmt)
+        );
+
+        // Type
+        t.setType(
+                get(row, colIndex, "Type", fmt)
+        );
+
+        // Customer Name
+        t.setUsername(
+                get(row, colIndex, "Name", fmt)
+        );
+
+        /*
+         * Required database fields that are not directly provided
+         * in the uploaded Excel.
+         */
+        t.setTxnType(
+                getOrDefault(row, colIndex, fmt)
+        );
 
         return t;
+    }
+
+//    private VendorTransactions mapRowToTransaction(Row r, Map<String, Integer> colIndex, DataFormatter fmt) {
+//        VendorTransactions t = new VendorTransactions();
+//
+//        t.setTransactionReferenceId(get(r, colIndex, "ID", fmt));
+//        t.setDate(parseDate(get(r, colIndex, "Date", fmt)));
+//        t.setMobile(get(r, colIndex, "Mobile", fmt));
+//        t.setEmail(get(r, colIndex, "Email", fmt));
+//        t.setConsumer(get(r, colIndex, "Consumer", fmt));
+//        t.setUsername(get(r, colIndex, "Username", fmt));
+//        t.setType(get(r, colIndex, "Type", fmt));
+//        t.setMode(get(r, colIndex, "Mode", fmt));
+//        t.setAmount(parseBig(get(r, colIndex, "Amount", fmt)));
+//        t.setTip(parseBig(get(r, colIndex, "Tip", fmt)));
+//        t.setCashAtPos(parseBig(get(r, colIndex, "Cash at POS", fmt)));
+//        t.setTxnType(get(r, colIndex, "Txn Type", fmt));
+//        t.setAuthCode(get(r, colIndex, "Auth Code", fmt));
+//        t.setCard(get(r, colIndex, "Card", fmt));
+//        t.setIssuingBank(get(r, colIndex, "Issuing Bank", fmt));
+//        t.setCardType(get(r, colIndex, "Card Type", fmt));
+//        t.setBrandType(get(r, colIndex, "Brand Type", fmt));
+//        t.setCardClassification(get(r, colIndex, "Card Classification", fmt));
+//        t.setCardTxnType(get(r, colIndex, "Card Txn Type", fmt));
+//        t.setRrn(get(r, colIndex, "RRN", fmt));
+//        t.setInvoiceNumber(get(r, colIndex, "Invoice#", fmt));
+//        t.setDeviceSerial(get(r, colIndex, "Device Serial", fmt));
+//        t.setMerchant(get(r, colIndex, "Merchant", fmt));
+//        t.setCategory(get(r, colIndex, "Category", fmt));
+//        t.setStatus(get(r, colIndex, "Status", fmt));
+//        t.setSettledOn(parseDate(get(r, colIndex, "Settled On", fmt)));
+//        t.setLabels(get(r, colIndex, "Labels", fmt));
+//        t.setMid(getMidOrTid(r, colIndex, "MID"));
+//        t.setTid(getMidOrTid(r, colIndex, "TID"));
+//        t.setBatchNumber(get(r, colIndex, "Batch#", fmt));
+//        t.setRef(get(r, colIndex, "Ref#", fmt));
+//        t.setRef1(get(r, colIndex, "Ref# 1", fmt));
+//        t.setRef2(get(r, colIndex, "Ref# 2", fmt));
+//        t.setRef3(get(r, colIndex, "Ref# 3", fmt));
+//        t.setRef4(get(r, colIndex, "Ref# 4", fmt));
+//        t.setRef5(get(r, colIndex, "Ref# 5", fmt));
+//        t.setRef6(get(r, colIndex, "Ref# 6", fmt));
+//        t.setRef7(get(r, colIndex, "Ref# 7", fmt));
+//        t.setOriginalTransactionId(get(r, colIndex, "Original Transaction Id", fmt));
+//        t.setReceiptNo(get(r, colIndex, "Receipt No", fmt));
+//        t.setErrorCode(get(r, colIndex, "Error Code", fmt));
+//        t.setAdditionalInformation(get(r, colIndex, "Additional Information", fmt));
+//        t.setPgErrorCode(get(r, colIndex, "PG Error Code", fmt));
+//        t.setPgErrorMessage(get(r, colIndex, "PG Error Message", fmt));
+//        t.setLatitude(get(r, colIndex, "Latitude", fmt));
+//        t.setLongitude(get(r, colIndex, "Longitude", fmt));
+//        t.setPayer(get(r, colIndex, "Payer", fmt));
+//        t.setTidLocation(get(r, colIndex, "TID Location", fmt));
+//        t.setDxMode(get(r, colIndex, "DX Mode", fmt));
+//        t.setAcquiringBank(get(r, colIndex, "Acquiring Bank", fmt));
+//        t.setIssuingBankAlt(get(r, colIndex, "Issuing Bank.1", fmt));
+//
+//        return t;
+//    }
+
+    private String getOrDefault(
+            Row row,
+            Map<String, Integer> colIndex,
+            DataFormatter fmt
+    ) {
+
+        String value = get(row, colIndex, "Txn Type", fmt);
+
+        if (value.isBlank()) {
+            return "SALE";
+        }
+
+        return value.trim();
     }
 
     private static String get(Row r, Map<String, Integer> idx, String key, DataFormatter fmt) {

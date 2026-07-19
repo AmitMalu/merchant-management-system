@@ -73,51 +73,124 @@ public class TransactionReportService {
     /**
      * Generate merchant transaction report with enhanced filtering
      */
-    public TransactionReportResponse generateEnhancedMerchantTransactionReport(TransactionReportRequest request) {
-        logger.info("Generating enhanced merchant transaction report...");
+    public TransactionReportResponse<MerchantTransactionReportDTO>
+    generateEnhancedMerchantTransactionReport(TransactionReportRequest request) {
+
+        logger.info(
+                "Starting enhanced merchant transaction report generation | " +
+                        "dateFilterType={} | startDate={} | endDate={} | merchantId={} | " +
+                        "transactionStatus={} | transactionType={} | page={} | size={}",
+                request != null ? request.getDateFilterType() : null,
+                request != null ? request.getStartDate() : null,
+                request != null ? request.getEndDate() : null,
+                request != null ? request.getMerchantId() : null,
+                request != null ? request.getTransactionStatus() : null,
+                request != null ? request.getTransactionType() : null,
+                request != null ? request.getPage() : null,
+                request != null ? request.getSize() : null
+        );
 
         validateReportRequest(request);
 
+        logger.debug("Merchant transaction report request validation completed successfully");
+
         try {
+
             Pageable pageable = createPageable(request);
+
+            logger.debug(
+                    "Pagination created | pageNumber={} | pageSize={} | sort={}",
+                    pageable.getPageNumber(),
+                    pageable.getPageSize(),
+                    pageable.getSort()
+            );
+
             Page<MerchantTransactionReportDTO> transactionPage;
 
-            // Choose query based on date filter type
-            if ("SETTLEMENT_DATE".equals(request.getDateFilterType())) {
-                transactionPage = merchantTransactionRepository
-                        .findMerchantTransactionsBySettlementDateFilters(
-                                request.getStartDate(),
-                                request.getEndDate(),
-                                request.getMerchantId(),
-                                request.getTransactionStatus(),
-                                request.getTransactionType(),
-                                pageable);
+            String dateFilterType = request.getDateFilterType();
+
+            if ("SETTLEMENT_DATE".equalsIgnoreCase(dateFilterType)) {
+
+                logger.info(
+                        "Fetching merchant transactions using settlement date filter | " +
+                                "field=updatedDateAndTimeOfTransaction | startDate={} | endDate={} | " +
+                                "merchantId={} | status={} | transactionType={}",
+                        request.getStartDate(),
+                        request.getEndDate(),
+                        request.getMerchantId(),
+                        request.getTransactionStatus(),
+                        request.getTransactionType()
+                );
+
+                transactionPage =
+                        merchantTransactionRepository
+                                .findMerchantTransactionsBySettlementDateFilters(
+                                        request.getStartDate(),
+                                        request.getEndDate(),
+                                        request.getMerchantId(),
+                                        request.getTransactionStatus(),
+                                        request.getTransactionType(),
+                                        pageable
+                                );
+
             } else {
-                transactionPage = merchantTransactionRepository
-                        .findMerchantTransactionsByFilters(
-                                request.getStartDate(),
-                                request.getEndDate(),
-                                request.getMerchantId(),
-                                request.getTransactionStatus(),
-                                request.getTransactionType(),
-                                pageable);
+
+                logger.info(
+                        "Fetching merchant transactions using transaction date filter | " +
+                                "field=transactionDate | startDate={} | endDate={} | " +
+                                "merchantId={} | status={} | transactionType={}",
+                        request.getStartDate(),
+                        request.getEndDate(),
+                        request.getMerchantId(),
+                        request.getTransactionStatus(),
+                        request.getTransactionType()
+                );
+
+                transactionPage =
+                        merchantTransactionRepository
+                                .findMerchantTransactionsByFilters(
+                                        request.getStartDate(),
+                                        request.getEndDate(),
+                                        request.getMerchantId(),
+                                        request.getTransactionStatus(),
+                                        request.getTransactionType(),
+                                        pageable
+                                );
             }
 
+            logger.info(
+                    "Merchant transactions fetched successfully | currentPageElements={} | " +
+                            "totalElements={} | totalPages={} | pageNumber={}",
+                    transactionPage.getNumberOfElements(),
+                    transactionPage.getTotalElements(),
+                    transactionPage.getTotalPages(),
+                    transactionPage.getNumber()
+            );
 
-            // Get user role from Security Context
             String userRole = getUserRoleFromSecurityContext();
 
-            // Apply role-based filtering
-            List<MerchantTransactionReportDTO> adjustedTransactions = transactionPage.getContent()
-                    .stream()
-                    .map(dto -> applyRoleBasedFiltering(dto, userRole))
-                    .collect(Collectors.toList());
+            logger.debug(
+                    "Applying role-based filtering | userRole={} | transactionCount={}",
+                                                    userRole, transactionPage.getNumberOfElements());
 
-            // Get summary
-            MerchantTransactionReportSummary summary = getEnhancedMerchantTransactionSummary(request);
+            List<MerchantTransactionReportDTO> adjustedTransactions =
+                    transactionPage.getContent()
+                            .stream()
+                            .map(dto -> applyRoleBasedFiltering(dto, userRole))
+                            .collect(Collectors.toList());
 
-            // Build response
+            logger.debug(
+                    "Role-based filtering completed | userRole={} | adjustedTransactionCount={}",
+                                                        userRole, adjustedTransactions.size());
+
+            logger.debug("Generating enhanced merchant transaction summary");
+
+            MerchantTransactionReportSummary summary =getEnhancedMerchantTransactionSummary(request);
+
+            logger.debug("Merchant transaction summary generated successfully");
+
             TransactionReportResponse<MerchantTransactionReportDTO> response = new TransactionReportResponse<>();
+
             response.setTransactions(adjustedTransactions);
             response.setSummary(summary);
             response.setReportGeneratedAt(LocalDateTime.now());
@@ -127,12 +200,46 @@ public class TransactionReportService {
             response.setHasNext(transactionPage.hasNext());
             response.setHasPrevious(transactionPage.hasPrevious());
 
-            logger.info("Successfully generated report with {} transactions", adjustedTransactions.size());
+            logger.info(
+                    "Enhanced merchant transaction report generated successfully | " +
+                            "dateFilterType={} | returnedTransactions={} | totalElements={} | " +
+                            "totalPages={} | hasNext={} | hasPrevious={}",
+                    dateFilterType, adjustedTransactions.size(), transactionPage.getTotalElements(),
+                    transactionPage.getTotalPages(), transactionPage.hasNext(), transactionPage.hasPrevious()
+            );
+
             return response;
 
+        } catch (BusinessException e) {
+
+            logger.warn(
+                    "Business error while generating merchant transaction report | " +
+                            "dateFilterType={} | merchantId={} | reason={}",
+                    request.getDateFilterType(),
+                    request.getMerchantId(),
+                    e.getMessage()
+            );
+
+            throw e;
+
         } catch (Exception e) {
-            logger.error("Error generating report", e);
-            throw new BusinessException("Failed to generate report: " + e.getMessage());
+
+            logger.error(
+                    "Unexpected error while generating merchant transaction report | " +
+                            "dateFilterType={} | startDate={} | endDate={} | merchantId={} | " +
+                            "transactionStatus={} | transactionType={}",
+                    request.getDateFilterType(),
+                    request.getStartDate(),
+                    request.getEndDate(),
+                    request.getMerchantId(),
+                    request.getTransactionStatus(),
+                    request.getTransactionType(),
+                    e
+            );
+
+            throw new BusinessException(
+                    "Failed to generate report: " + e.getMessage()
+            );
         }
     }
 
@@ -730,47 +837,63 @@ public class TransactionReportService {
     /**
      * UPDATED: Create header for merchant Excel export with Service column
      */
-    private void createMerchantExcelHeader(Row headerRow, Boolean includeTaxes, String userRole, String merchantType) {
+    private void createMerchantExcelHeader(
+            Row headerRow,
+            Boolean includeTaxes,
+            String userRole,
+            String merchantType
+    ) {
         int colNum = 0;
 
-        // Common headers
+        boolean includeFranchiseColumn =
+                "FRANCHISE".equalsIgnoreCase(merchantType);
+
+        boolean includeTaxColumns =
+                Boolean.TRUE.equals(includeTaxes) && isAdminRole(userRole);
+
+        headerRow.createCell(colNum++).setCellValue("System ID");
         headerRow.createCell(colNum++).setCellValue("Transaction ID");
-        headerRow.createCell(colNum++).setCellValue("Vendor Transaction ID");
-        headerRow.createCell(colNum++).setCellValue("Service");  // NEW: Service type (Settlement/PAYOUT/PAYOUT_REFUND)
-        headerRow.createCell(colNum++).setCellValue("Remarks");
-        headerRow.createCell(colNum++).setCellValue("Action");
         headerRow.createCell(colNum++).setCellValue("Transaction Date");
-        headerRow.createCell(colNum++).setCellValue("Settlement Date");
-        headerRow.createCell(colNum++).setCellValue("Amount");
-        headerRow.createCell(colNum++).setCellValue("Auth Code");
-        headerRow.createCell(colNum++).setCellValue("TID");
-        headerRow.createCell(colNum++).setCellValue("Net Amount");
-        headerRow.createCell(colNum++).setCellValue("System Fee");
-        headerRow.createCell(colNum++).setCellValue("Settlement Rate");
-        headerRow.createCell(colNum++).setCellValue("Merchant Rate");
-        headerRow.createCell(colNum++).setCellValue("Merchant Name");
-        headerRow.createCell(colNum++).setCellValue("Status");
+        headerRow.createCell(colNum++).setCellValue("Action");
+        headerRow.createCell(colNum++).setCellValue("Service");
+        headerRow.createCell(colNum++).setCellValue("Remarks");
 
-        // Franchise info (only for franchise merchants)
-        if (Objects.equals(merchantType, "FRANCHISE")) {
-            headerRow.createCell(colNum++).setCellValue("Franchise Name");
-        }
+        headerRow.createCell(colNum++).setCellValue("Balance Before (₹)");
+        headerRow.createCell(colNum++).setCellValue("Net Amount (₹)");
+        headerRow.createCell(colNum++).setCellValue("System Fee (₹)");
 
-        // Tax columns (only if includeTaxes and admin) - shown for all rows, but will be empty for PAYOUT
-        if (includeTaxes && isAdminRole(userRole)) {
+        /*
+         * Admin-only tax details are kept immediately after System Fee
+         * so related monetary fields remain grouped together.
+         */
+        if (includeTaxColumns) {
             headerRow.createCell(colNum++).setCellValue("System Fee (Ex GST)");
             headerRow.createCell(colNum++).setCellValue("GST Amount");
             headerRow.createCell(colNum++).setCellValue("GST %");
         }
 
-        // Balance columns
-        headerRow.createCell(colNum++).setCellValue("Bal Before");
-        headerRow.createCell(colNum++).setCellValue("Bal After");
+        headerRow.createCell(colNum++).setCellValue("Transaction Amount (₹)");
+        headerRow.createCell(colNum++).setCellValue("Balance After (₹)");
+        headerRow.createCell(colNum++).setCellValue("Commission (₹)");
 
-        // Card details - will be empty for PAYOUT/REFUND
+        headerRow.createCell(colNum++).setCellValue("State");
+        headerRow.createCell(colNum++).setCellValue("Settled On");
+        headerRow.createCell(colNum++).setCellValue("Merchant Name");
+
+        if (includeFranchiseColumn) {
+            headerRow.createCell(colNum++).setCellValue("Franchise Name");
+        }
+
+        headerRow.createCell(colNum++).setCellValue("Auth Code");
+        headerRow.createCell(colNum++).setCellValue("TID");
         headerRow.createCell(colNum++).setCellValue("Brand Type");
         headerRow.createCell(colNum++).setCellValue("Card Type");
         headerRow.createCell(colNum++).setCellValue("Card Classification");
+
+        headerRow.createCell(colNum++).setCellValue("Settlement Rate (%)");
+        headerRow.createCell(colNum++).setCellValue("Merchant Rate (%)");
+        headerRow.createCell(colNum++).setCellValue("Franchise Rate (%)");
+        headerRow.createCell(colNum++).setCellValue("Commission Rate (%)");
     }
 
     /**
@@ -818,59 +941,82 @@ public class TransactionReportService {
     /**
      * UPDATED: Populate merchant Excel row with Service column
      */
-    private void populateMerchantExcelRow(Row row, MerchantTransactionReportDTO dto,
-                                          Boolean includeTaxes, String userRole) {
+    private void populateMerchantExcelRow(
+            Row row,
+            MerchantTransactionReportDTO dto,
+            Boolean includeTaxes,
+            String userRole,
+            String merchantType
+    ) {
         int colNum = 0;
 
-        // Basic transaction info
+        boolean includeFranchiseColumn =
+                "FRANCHISE".equalsIgnoreCase(merchantType);
+
+        boolean includeTaxColumns =
+                Boolean.TRUE.equals(includeTaxes) && isAdminRole(userRole);
+
+        // Same order as createMerchantExcelHeader and frontend columnPriority
+
         setCellValue(row, colNum++, dto.getCustomTxnId());
         setCellValue(row, colNum++, dto.getTxnId());
-        setCellValue(row, colNum++, dto.getService());  // NEW: Service column
-        setCellValue(row, colNum++, dto.getRemarks());
-        setCellValue(row, colNum++, dto.getActionOnBalance());
         setCellValue(row, colNum++, dto.getTxnDate());
-        setCellValue(row, colNum++, dto.getSettleDate());
-        setCellValue(row, colNum++, dto.getTxnAmount());
+        setCellValue(row, colNum++, dto.getActionOnBalance());
+        setCellValue(row, colNum++, dto.getService());
+        setCellValue(row, colNum++, dto.getRemarks());
 
-        // Vendor details (will be empty for PAYOUT/REFUND)
-        setCellValue(row, colNum++, dto.getAuthCode());
-        setCellValue(row, colNum++, dto.getTid());
-
-        // Amounts
+        setCellValue(row, colNum++, dto.getBalBeforeTran());
         setCellValue(row, colNum++, dto.getSettleAmount());
         setCellValue(row, colNum++, dto.getSystemFee());
-        setCellValue(row, colNum++, dto.getSettlementPercentage());
-        setCellValue(row, colNum++, dto.getMerchantRate());
-        setCellValue(row, colNum++, dto.getMerchantName());
-        setCellValue(row, colNum++, dto.getState());
 
-        // Franchise info (if applicable)
-        if (dto.getFranchiseName() != null) {
-            setCellValue(row, colNum++, dto.getFranchiseName());
-        }
-
-        // Tax columns (admin only, will be empty for PAYOUT)
-        if (includeTaxes && isAdminRole(userRole)) {
+        /*
+         * Tax columns must always consume the same number of cells
+         * whenever they are present in the header.
+         */
+        if (includeTaxColumns) {
             if (!isWalletTransaction(dto.getService())) {
                 setCellValue(row, colNum++, dto.getSystemFeeExGST());
                 setCellValue(row, colNum++, dto.getGstAmount());
                 setCellValue(row, colNum++, taxesService.getTaxes().getGst());
             } else {
-                // Empty cells for PAYOUT/REFUND
                 setCellValue(row, colNum++, "");
                 setCellValue(row, colNum++, "");
                 setCellValue(row, colNum++, "");
             }
         }
 
-        // Balance columns
-        setCellValue(row, colNum++, dto.getBalBeforeTran());
+        setCellValue(row, colNum++, dto.getTxnAmount());
         setCellValue(row, colNum++, dto.getBalAfterTran());
+        setCellValue(row, colNum++, dto.getCommissionAmount());
 
-        // Card details (will be empty for PAYOUT/REFUND)
+        setCellValue(row, colNum++, dto.getState());
+        setCellValue(row, colNum++, dto.getSettleDate());
+        setCellValue(row, colNum++, dto.getMerchantName());
+
+        /*
+         * Do not check dto.getFranchiseName() != null here.
+         * The condition must match the header condition exactly.
+         */
+        if (includeFranchiseColumn) {
+            setCellValue(
+                    row,
+                    colNum++,
+                    dto.getFranchiseName() != null
+                            ? dto.getFranchiseName()
+                            : ""
+            );
+        }
+
+        setCellValue(row, colNum++, dto.getAuthCode());
+        setCellValue(row, colNum++, dto.getTid());
         setCellValue(row, colNum++, dto.getBrandType());
         setCellValue(row, colNum++, dto.getCardType());
         setCellValue(row, colNum++, dto.getCardClassification());
+
+        setCellValue(row, colNum++, dto.getSettlementPercentage());
+        setCellValue(row, colNum++, dto.getMerchantRate());
+        setCellValue(row, colNum++, dto.getFranchiseRate());
+        setCellValue(row, colNum++, dto.getCommissionRate());
     }
 
     /**
@@ -1244,7 +1390,7 @@ public class TransactionReportService {
 
                     // Create Excel row
                     Row row = sheet.createRow(rowNum.getAndIncrement());
-                    populateMerchantExcelRow(row, filteredDto, includeTaxes, userRole);
+                    populateMerchantExcelRow(row, filteredDto, includeTaxes, userRole, merchantType);
 
                     // Log progress
                     if (rowNum.get() % 1000 == 0) {

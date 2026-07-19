@@ -111,10 +111,10 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "LEFT JOIN VendorTransactions vt ON vt.transactionReferenceId = mtd.vendorTransactionId " +
             "LEFT JOIN FranchiseTransactionDetails ftd ON ftd.vendorTransactionId = mtd.vendorTransactionId " +
             "AND ftd.franchise.id = mtd.merchant.franchise.id " +
-            "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
+            "WHERE mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
-            "ORDER BY mtd.transactionDate DESC")
+            "ORDER BY mtd.updatedDateAndTimeOfTransaction DESC")
     Page<MerchantTransactionReportDTO> findMerchantTransactionsBySettlementDateFilters(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
