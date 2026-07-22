@@ -66,6 +66,14 @@ public class VidualPayCreditCardService {
                         plainJson
                 );
 
+        String decrypted =
+                cryptoService.decryptFromVendor(
+                        vendorId,
+                        response.getData()
+                );
+
+        log.info("Decrypted Response {} ", decrypted);
+
         // Check for vendor-level error before attempting decryption
         if (!"000".equals(response.getResponseCode())) {
             log.error("Biller Details API returned error | responseCode={} | message={} | billerCode={}",
@@ -82,12 +90,6 @@ public class VidualPayCreditCardService {
             log.error("Biller Details API returned null data | billerCode={}", billerCode);
             throw new RuntimeException("Empty data in vendor response for billerCode: " + billerCode);
         }
-
-        String decrypted =
-                cryptoService.decryptFromVendor(
-                        vendorId,
-                        response.getData()
-                );
 
         return objectMapper.readValue(decrypted, Object.class);
     }

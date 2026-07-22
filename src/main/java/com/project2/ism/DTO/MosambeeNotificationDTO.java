@@ -13,6 +13,8 @@ public class MosambeeNotificationDTO {
     private String transactionRRN;
     private String transactionAmount;
 
+    private String apn;
+
     private String transactionAuthCode;
 
     private String transactionCardNumber;
@@ -48,6 +50,12 @@ public class MosambeeNotificationDTO {
     private String cashBack;
 
     private String tipAmount;
+
+    private String transactionLat;
+
+    private String transactionLong;
+
+    private String transactionSTAN;
 
 
     public String getName() {
@@ -248,5 +256,37 @@ public class MosambeeNotificationDTO {
 
     public void setTipAmount(String tipAmount) {
         this.tipAmount = tipAmount;
+    }
+
+    public String getApn() {
+        return apn;
+    }
+
+    public void setApn(String apn) {
+        this.apn = apn;
+    }
+
+    public String getTransactionLat() {
+        return transactionLat;
+    }
+
+    public void setTransactionLat(String transactionLat) {
+        this.transactionLat = transactionLat;
+    }
+
+    public String getTransactionLong() {
+        return transactionLong;
+    }
+
+    public void setTransactionLong(String transactionLong) {
+        this.transactionLong = transactionLong;
+    }
+
+    public String getTransactionSTAN() {
+        return transactionSTAN;
+    }
+
+    public void setTransactionSTAN(String transactionSTAN) {
+        this.transactionSTAN = transactionSTAN;
     }
 }

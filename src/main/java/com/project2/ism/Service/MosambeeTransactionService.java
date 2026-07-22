@@ -27,7 +27,7 @@ import java.time.format.DateTimeFormatter;
 public class MosambeeTransactionService {
 
     private static final Logger log =
-            LoggerFactory.getLogger(RazorpayTransactionService.class);
+            LoggerFactory.getLogger(MosambeeTransactionService.class);
 
     @Value("${mosambee.salt}")
     private String salt;
@@ -81,14 +81,12 @@ public class MosambeeTransactionService {
 
             log.info("Parsed notification successfully. Transaction ID : {}", txnId);
 
-
             // Step 2: Validate Checksum
             log.debug("Validating checksum for txnId : {}", txnId);
 
             validateChecksum(dto);
 
             log.info("Checksum validated successfully for txnId : {}", txnId);
-
 
             // Step 3: Create initial log entry
             log.debug("Creating notification log entry for txnId : {}", txnId);
@@ -181,67 +179,45 @@ public class MosambeeTransactionService {
             MosambeeNotificationDTO dto,
             VendorTransactions tx) {
 
-        tx.setTransactionReferenceId(
-                dto.getTransactionID());
+        tx.setTransactionReferenceId(dto.getTransactionID());
 
         tx.setUsername(dto.getName());
 
-        tx.setConsumer(
-                dto.getCardHolderName());
+        tx.setConsumer(dto.getCardHolderName());
 
-        tx.setAmount(
-                new BigDecimal(
-                        dto.getTransactionAmount()));
+        tx.setAmount(new BigDecimal(dto.getTransactionAmount()));
 
-        tx.setTip(
-                new BigDecimal(
-                        dto.getTipAmount()));
+        tx.setTip(new BigDecimal(dto.getTipAmount()));
 
-        tx.setCashAtPos(
-                new BigDecimal(
-                        dto.getCashBack()));
+        tx.setCashAtPos(new BigDecimal(dto.getCashBack()));
 
-        tx.setTxnType(
-                dto.getTransactionTypeName());
+        tx.setTxnType(dto.getTransactionTypeName());
 
-        tx.setType(
-                dto.getTransactionTypeName());
+        tx.setType(dto.getTransactionTypeName());
 
-        tx.setAuthCode(
-                dto.getTransactionAuthCode());
+        tx.setAuthCode(dto.getTransactionAuthCode());
 
-        tx.setCard(
-                dto.getTransactionCardNumber());
+        tx.setCardLastFourDigit(dto.getTransactionCardNumber());
 
-        tx.setCardType(
-                dto.getCardType());
+        tx.setCardType(dto.getCreditDebitCardType());
 
-        tx.setRrn(
-                dto.getTransactionRRN());
+        tx.setRrn(dto.getTransactionRRN());
 
-        tx.setInvoiceNumber(
-                dto.getInvoiceNumber());
+        tx.setInvoiceNumber(dto.getInvoiceNumber());
 
-        tx.setMerchant(
-                dto.getBusinessName());
+        tx.setMerchant(dto.getBusinessName());
 
-        tx.setStatus(
-                dto.getTransactionStatus());
+        tx.setStatus(dto.getTransactionStatus());
 
-        tx.setMid(
-                dto.getMerchantId());
+        tx.setMid(dto.getMerchantId());
 
-        tx.setTid(
-                dto.getTransactionTerminalId());
+        tx.setTid(dto.getTransactionTerminalId());
 
-        tx.setBatchNumber(
-                dto.getTransactionBatchNumber());
+        tx.setBatchNumber(dto.getTransactionBatchNumber());
 
-        tx.setReferenceTransactionId(
-                dto.getRefTxnId());
+        tx.setReferenceTransactionId(dto.getRefTxnId());
 
-        tx.setAcquiringBank(
-                dto.getAcquirerName());
+        tx.setAcquiringBank(dto.getAcquirerName());
 
         tx.setDate(
                 parseDate(
@@ -250,8 +226,19 @@ public class MosambeeTransactionService {
 
         tx.setPaymentGateway("MOSAMBEE");
 
-        tx.setCategory(
-                getCategory(dto.getCreditDebitCardType()));
+        tx.setCategory(getCategory(dto.getCreditDebitCardType()));
+
+        tx.setDeviceSerial(dto.getApn());
+
+        tx.setLatitude(dto.getTransactionLat());
+
+        tx.setLongitude(dto.getTransactionLong());
+
+        tx.setBrandType(dto.getCardType());
+
+        tx.setRef1(dto.getTransactionSTAN());
+
+        tx.setRef7(dto.getChecksum());
 
     }
 
@@ -392,21 +379,49 @@ public class MosambeeTransactionService {
         return null;
     }
 
-    private void validateChecksum(
-            MosambeeNotificationDTO dto) {
+//    private void validateChecksum(
+//            MosambeeNotificationDTO dto) {
+//
+//        String generated =
+//                mosambeeChecksumUtil.generateChecksum(
+//                        dto.getTransactionID(),
+//                        dto.getMerchantId(),
+//                        dto.getTransactionRRN(),
+//                        salt);
+//
+//        if (!generated.equalsIgnoreCase(dto.getChecksum())) {
+//
+//            throw new RuntimeException(
+//                    "Checksum validation failed for transaction "
+//                            + dto.getTransactionID());
+//        }
+//    }
 
-        String generated =
-                mosambeeChecksumUtil.generateChecksum(
-                        dto.getTransactionID(),
-                        dto.getMerchantId(),
-                        dto.getTransactionRRN(),
-                        salt);
+    private void validateChecksum(MosambeeNotificationDTO dto) {
 
-        if (!generated.equalsIgnoreCase(dto.getChecksum())) {
+        String generated = mosambeeChecksumUtil.generateChecksum(
+                dto.getTransactionID(),
+                dto.getMerchantId(),
+                dto.getTransactionRRN(),
+                salt
+        );
 
+        String receivedChecksum = dto.getChecksum();
+
+        if (!generated.equalsIgnoreCase(receivedChecksum)) {
+            log.error(
+                    "Checksum validation failed for transaction ID: {}. Generated: {}, Received: {}",
+                    dto.getTransactionID(), generated, receivedChecksum
+            );
             throw new RuntimeException(
-                    "Checksum validation failed for transaction "
-                            + dto.getTransactionID());
+                    "Checksum validation failed for transaction " + dto.getTransactionID()
+            );
         }
+
+        log.debug(
+                "Checksum validated successfully for transaction ID: {}",
+                dto.getTransactionID()
+        );
     }
+
 }

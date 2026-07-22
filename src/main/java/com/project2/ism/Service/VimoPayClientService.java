@@ -459,8 +459,6 @@ public class VimoPayClientService {
             log.info("Vendor API response | path={} | status={} | time={}ms",
                     path, status, duration);
 
-            saveLog(vendorId, path, plainJson, requestBody, respBody, status, null);
-
             if (status == 401) {
                 log.warn("Vendor API unauthorized | path={}", path);
                 throw new WebClientResponseException(
@@ -478,6 +476,14 @@ public class VimoPayClientService {
 
             log.debug("Vendor response parsed | responseCode={}",
                     wrapper.getResponseCode());
+
+            String decrypted =
+                    cryptoService.decryptFromVendor(
+                            vendorId,
+                            wrapper.getData()
+                    );
+
+            saveLog(vendorId, path, plainJson, requestBody, respBody, status, decrypted);
 
             return wrapper;
 
