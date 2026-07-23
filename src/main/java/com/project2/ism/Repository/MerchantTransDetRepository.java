@@ -534,109 +534,152 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
 
     @Query(
             value = """
-    SELECT
-        t.transactionId,
-        t.amount,
-        t.charge,
-        t.balAfterTran,
-        t.balBeforeTran,
-        t.remarks,
-        t.tranStatus,
-        t.transactionDate,
-        t.transactionType,
-        t.merchantId,
-        t.franchiseId
-    FROM (
-        SELECT
-            m.transaction_id        AS transactionId,
-            (ABS(m.amount) - COALESCE(m.charge, 0)) AS amount,
-            COALESCE(m.charge, 0)   AS charge,
-            m.bal_after_tran        AS balAfterTran,
-            m.bal_before_tran       AS balBeforeTran,
-            m.remarks               AS remarks,
-            m.tran_status           AS tranStatus,
-            m.transaction_date      AS transactionDate,
-            m.transaction_type      AS transactionType,
-            m.merchant_id           AS merchantId,
-            NULL                    AS franchiseId
-        FROM merchant_transaction_details m
-        WHERE m.transaction_date >= :startDate
-          AND m.transaction_date <  :endDate
-          AND m.service IN (:services)
+            SELECT
+                t.transactionId,
+                t.amount,
+                t.charge,
+                t.balAfterTran,
+                t.balBeforeTran,
+                t.bankRefId,
+                t.remarks,
+                t.tranStatus,
+                t.transactionDate,
+                t.transactionType,
+                t.merchantId,
+                t.franchiseId
+            FROM (
+                SELECT
+                    m.transaction_id AS transactionId,
+                    (ABS(m.amount) - COALESCE(m.charge, 0)) AS amount,
+                    COALESCE(m.charge, 0) AS charge,
+                    m.bal_after_tran AS balAfterTran,
+                    m.bal_before_tran AS balBeforeTran,
+                    m.bank_ref_id AS bankRefId,
+                    m.remarks AS remarks,
+                    m.tran_status AS tranStatus,
+                    m.transaction_date AS transactionDate,
+                    m.transaction_type AS transactionType,
+                    m.merchant_id AS merchantId,
+                    NULL AS franchiseId
+                FROM merchant_transaction_details m
+                WHERE m.transaction_date >= :startDate
+                  AND m.transaction_date < :endDate
+                  AND m.service IN (:services)
+                  AND (
+                        :merchantId IS NULL
+                        OR m.merchant_id = :merchantId
+                  )
 
-        UNION ALL
+                UNION ALL
 
-        SELECT
-            f.transaction_id        AS transactionId,
-            (ABS(f.amount) - COALESCE(f.charge, 0)) AS amount,
-            COALESCE(f.charge, 0)   AS charge,
-            f.bal_after_tran        AS balAfterTran,
-            f.bal_before_tran       AS balBeforeTran,
-            f.remarks               AS remarks,
-            f.tran_status           AS tranStatus,
-            f.transaction_date      AS transactionDate,
-            f.transaction_type      AS transactionType,
-            NULL                    AS merchantId,
-            f.franchise_id          AS franchiseId
-        FROM franchise_transaction_details f
-        WHERE f.transaction_date >= :startDate
-          AND f.transaction_date <  :endDate
-          AND f.service IN (:services)
-    ) t
-    ORDER BY t.transactionDate DESC
-    """,
+                SELECT
+                    f.transaction_id AS transactionId,
+                    (ABS(f.amount) - COALESCE(f.charge, 0)) AS amount,
+                    COALESCE(f.charge, 0) AS charge,
+                    f.bal_after_tran AS balAfterTran,
+                    f.bal_before_tran AS balBeforeTran,
+                    f.bank_ref_id AS bankRefId,
+                    f.remarks AS remarks,
+                    f.tran_status AS tranStatus,
+                    f.transaction_date AS transactionDate,
+                    f.transaction_type AS transactionType,
+                    NULL AS merchantId,
+                    f.franchise_id AS franchiseId
+                FROM franchise_transaction_details f
+                WHERE f.transaction_date >= :startDate
+                  AND f.transaction_date < :endDate
+                  AND f.service IN (:services)
+                  AND :merchantId IS NULL
+            ) t
+            ORDER BY t.transactionDate DESC
+            """,
+
             countQuery = """
-    SELECT COUNT(*) FROM (
-        SELECT m.transaction_id
-        FROM merchant_transaction_details m
-        WHERE m.transaction_date >= :startDate
-          AND m.transaction_date <  :endDate
-          AND m.service IN (:services)
+            SELECT COUNT(*)
+            FROM (
+                SELECT m.transaction_id
+                FROM merchant_transaction_details m
+                WHERE m.transaction_date >= :startDate
+                  AND m.transaction_date < :endDate
+                  AND m.service IN (:services)
+                  AND (
+                        :merchantId IS NULL
+                        OR m.merchant_id = :merchantId
+                  )
 
-        UNION ALL
+                UNION ALL
 
-        SELECT f.transaction_id
-        FROM franchise_transaction_details f
-        WHERE f.transaction_date >= :startDate
-          AND f.transaction_date <  :endDate
-          AND f.service IN (:services)
-    ) x
-    """,
+                SELECT f.transaction_id
+                FROM franchise_transaction_details f
+                WHERE f.transaction_date >= :startDate
+                  AND f.transaction_date < :endDate
+                  AND f.service IN (:services)
+                  AND :merchantId IS NULL
+            ) x
+            """,
             nativeQuery = true
     )
     Page<PayoutTransactionReportDTO> fetchTransactions(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
             @Param("services") List<String> services,
+            @Param("merchantId") Long merchantId,
             Pageable pageable
     );
 
-    @Query(value = """
-    SELECT
-        COUNT(*) AS totalCount,
-        SUM(CASE WHEN service = 'PAYOUT' THEN 1 ELSE 0 END) AS payoutCount,
-        SUM(CASE WHEN service = 'PAYOUT_REFUND' THEN 1 ELSE 0 END) AS payoutRefundCount
-    FROM (
-        SELECT m.service
-        FROM merchant_transaction_details m
-        WHERE m.transaction_date >= :startDate
-          AND m.transaction_date <  :endDate
-          AND m.service IN (:services)
+    @Query(
+            value = """
+            SELECT
+                COUNT(*) AS totalCount,
 
-        UNION ALL
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN service = 'PAYOUT' THEN 1
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS payoutCount,
 
-        SELECT f.service
-        FROM franchise_transaction_details f
-        WHERE f.transaction_date >= :startDate
-          AND f.transaction_date <  :endDate
-          AND f.service IN (:services)
-    ) x
-    """,
-            nativeQuery = true)
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN service = 'PAYOUT_REFUND' THEN 1
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS payoutRefundCount
+
+            FROM (
+                SELECT m.service
+                FROM merchant_transaction_details m
+                WHERE m.transaction_date >= :startDate
+                  AND m.transaction_date < :endDate
+                  AND m.service IN (:services)
+                  AND (
+                        :merchantId IS NULL
+                        OR m.merchant_id = :merchantId
+                  )
+
+                UNION ALL
+
+                SELECT f.service
+                FROM franchise_transaction_details f
+                WHERE f.transaction_date >= :startDate
+                  AND f.transaction_date < :endDate
+                  AND f.service IN (:services)
+                  AND :merchantId IS NULL
+            ) x
+            """,
+            nativeQuery = true
+    )
     PayoutServiceCountDTO fetchServiceCounts(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
-            @Param("services") List<String> services
+            @Param("services") List<String> services,
+            @Param("merchantId") Long merchantId
     );
 
 

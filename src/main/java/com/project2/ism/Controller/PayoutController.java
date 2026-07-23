@@ -199,6 +199,9 @@ public class PayoutController {
             @RequestParam(defaultValue = "BOTH")
             String service, // PAYOUT | PAYOUT_REFUND | BOTH
 
+            @RequestParam(required = false)
+            Long merchantId,
+
             @RequestParam(defaultValue = "0")
             int page,
 
@@ -209,6 +212,7 @@ public class PayoutController {
                 startDate,
                 endDate,
                 service,
+                merchantId,
                 page,
                 size
         );
