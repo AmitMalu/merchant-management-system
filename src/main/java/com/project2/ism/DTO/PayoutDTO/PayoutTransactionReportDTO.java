@@ -15,6 +15,8 @@ public interface PayoutTransactionReportDTO {
 
     BigDecimal getBalBeforeTran();
 
+    String getBankRefId();
+
     String getRemarks();
 
     String getTranStatus();

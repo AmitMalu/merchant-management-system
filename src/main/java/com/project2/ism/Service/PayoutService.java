@@ -772,9 +772,14 @@ public class PayoutService {
             LocalDate startDate,
             LocalDate endDate,
             String service,
+            Long merchantId,
             int page,
             int size
     ) {
+        log.info(
+                "Fetching payout transaction report | startDate={}, endDate={}, " +
+                        "service={}, merchantId={}, page={}, size={}",
+                startDate, endDate, service, merchantId, page, size);
 
         // Date handling
         if (startDate == null && endDate == null) {
@@ -805,11 +810,11 @@ public class PayoutService {
 
         // Fetch data
         Page<PayoutTransactionReportDTO> transactions =
-                merchantTransDetRepo.fetchTransactions(from, to, services, pageable);
+                merchantTransDetRepo.fetchTransactions(from, to, services, merchantId, pageable);
 
         // Fetch counts
         PayoutServiceCountDTO counts =
-                merchantTransDetRepo.fetchServiceCounts(from, to, services);
+                merchantTransDetRepo.fetchServiceCounts(from, to, services, merchantId);
 
         // Build response
         PayoutTransactionReportResponse response = new PayoutTransactionReportResponse();
