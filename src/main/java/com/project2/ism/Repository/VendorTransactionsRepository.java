@@ -70,31 +70,46 @@ SELECT new com.project2.ism.DTO.ReportDTO.SettledUnsettledReportDto(
     v.settlementStatus
 )
 FROM VendorTransactions v
-WHERE (:settled IS NULL OR v.settled = :settled)
-AND (
-    (
-        :dateType = 'TRANSACTION_DATE'
-        AND (:fromDate IS NULL OR v.date >= :fromDate)
-        AND (:toDate IS NULL OR v.date <= :toDate)
+WHERE
+    (:settled IS NULL OR v.settled = :settled)
+
+    AND (
+        :merchantId IS NULL
+        OR EXISTS (
+            SELECT psn.id
+            FROM ProductSerialNumbers psn
+            WHERE psn.merchant.id = :merchantId
+              AND psn.mid = v.mid
+              AND psn.tid = v.tid
+        )
     )
-    OR
-    (
-        :dateType = 'SETTLEMENT_DATE'
-        AND (:fromDate IS NULL OR v.settledAt >= :fromDate)
-        AND (:toDate IS NULL OR v.settledAt <= :toDate)
+
+    AND (
+        (
+            :dateType = 'TRANSACTION_DATE'
+            AND (:fromDate IS NULL OR v.date >= :fromDate)
+            AND (:toDate IS NULL OR v.date <= :toDate)
+        )
+        OR
+        (
+            :dateType = 'SETTLEMENT_DATE'
+            AND (:fromDate IS NULL OR v.settledAt >= :fromDate)
+            AND (:toDate IS NULL OR v.settledAt <= :toDate)
+        )
     )
-)
+
 ORDER BY
-CASE
-    WHEN :dateType = 'TRANSACTION_DATE' THEN v.date
-    ELSE v.settledAt
-END DESC
+    CASE
+        WHEN :dateType = 'TRANSACTION_DATE' THEN v.date
+        ELSE v.settledAt
+    END DESC
 """)
     List<SettledUnsettledReportDto> getSettledUnsettledReports(
             @Param("settled") Boolean settled,
             @Param("fromDate") LocalDateTime fromDate,
             @Param("toDate") LocalDateTime toDate,
-            @Param("dateType") String dateType
+            @Param("dateType") String dateType,
+            @Param("merchantId") Long merchantId
     );
 
 }

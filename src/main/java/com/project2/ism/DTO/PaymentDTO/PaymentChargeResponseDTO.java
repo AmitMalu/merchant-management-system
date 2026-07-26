@@ -1,6 +1,7 @@
 package com.project2.ism.DTO.PaymentDTO;
 
 import com.project2.ism.Enum.ChargeType;
+import com.project2.ism.Enum.RequestedType;
 import com.project2.ism.Model.Payment.PaymentMode;
 
 import java.math.BigDecimal;
@@ -11,6 +12,14 @@ public class PaymentChargeResponseDTO {
 
     private Long id;
     private PaymentMode mode;
+    private RequestedType chargeScope;
+
+    private Long merchantId;
+    private String merchantName;
+
+    private Long franchiseId;
+    private String franchiseName;
+
     private Boolean status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -61,6 +70,11 @@ public class PaymentChargeResponseDTO {
     public PaymentChargeResponseDTO(
             Long id,
             PaymentMode mode,
+            RequestedType chargeScope,
+            Long merchantId,
+            String merchantName,
+            Long franchiseId,
+            String franchiseName,
             Boolean status,
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
@@ -68,6 +82,11 @@ public class PaymentChargeResponseDTO {
     ) {
         this.id = id;
         this.mode = mode;
+        this.chargeScope = chargeScope;
+        this.merchantId = merchantId;
+        this.merchantName = merchantName;
+        this.franchiseId = franchiseId;
+        this.franchiseName = franchiseName;
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -80,6 +99,21 @@ public class PaymentChargeResponseDTO {
 
     public PaymentMode getMode() { return mode; }
     public void setMode(PaymentMode mode) { this.mode = mode; }
+
+    public RequestedType getChargeScope() { return chargeScope; }
+    public void setChargeScope(RequestedType chargeScope) { this.chargeScope = chargeScope; }
+
+    public String getMerchantName() { return merchantName; }
+    public void setMerchantName(String merchantName) { this.merchantName = merchantName; }
+
+    public Long getMerchantId() { return merchantId; }
+    public void setMerchantId(Long merchantId) { this.merchantId = merchantId; }
+
+    public Long getFranchiseId() {return franchiseId;}
+    public void setFranchiseId(Long franchiseId) {this.franchiseId = franchiseId;}
+
+    public String getFranchiseName() {return franchiseName;}
+    public void setFranchiseName(String franchiseName) {this.franchiseName = franchiseName;}
 
     public Boolean getStatus() { return status; }
     public void setStatus(Boolean status) { this.status = status; }

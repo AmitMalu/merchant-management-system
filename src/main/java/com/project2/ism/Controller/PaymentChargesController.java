@@ -10,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/payment-charges")
@@ -60,34 +62,45 @@ public class PaymentChargesController {
 
     // ================= LIST / SEARCH =================
 
+    // ================= LIST / SEARCH =================
+
     @GetMapping
     public ResponseEntity<ApiResponse<Object>> list(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "id") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
-            @RequestParam(required = false) String search) {
+            @RequestParam(required = false) String search
+    ) {
 
-        Page<PaymentChargeResponseDTO> result =
-                (search != null && !search.trim().isEmpty())
-                        ? paymentChargeService.searchPayoutCharges(search, page, size, sortBy, sortDir)
-                        : paymentChargeService.getAllPaymentCharges(page, size, sortBy, sortDir);
+        Page<PaymentChargeResponseDTO> result;
 
-        // Pagination wrapper
-        var pagination = new java.util.HashMap<String, Object>();
-        pagination.put("content", result.getContent());
-        pagination.put("totalItems", result.getTotalElements());
-        pagination.put("totalPages", result.getTotalPages());
-        pagination.put("currentPage", result.getNumber());
-        pagination.put("pageSize", result.getSize());
+        if (search != null && !search.trim().isEmpty()) {
+            result = paymentChargeService.searchPayoutCharges(search, page, size, sortBy, sortDir );
+        } else {
+            result = paymentChargeService.getAllPaymentCharges(page, size, sortBy, sortDir);
+        }
 
-        ApiResponse<Object> api = new ApiResponse<>(
-                true,
-                "Payout charges fetched",
-                pagination,
-                null,
-                LocalDateTime.now()
-        );
+        Map<String, Object> pagination = new LinkedHashMap<>();
+
+        pagination.put("content",result.getContent());
+        pagination.put("totalItems",result.getTotalElements());
+        pagination.put("totalPages",result.getTotalPages());
+        pagination.put("currentPage",result.getNumber());
+        pagination.put("pageSize",result.getSize());
+        pagination.put("first",result.isFirst());
+        pagination.put("last",result.isLast());
+        pagination.put("hasNext",result.hasNext());
+        pagination.put("hasPrevious",result.hasPrevious());
+
+        ApiResponse<Object> api =
+                new ApiResponse<>(
+                        true,
+                        "Payout charges fetched",
+                        pagination,
+                        null,
+                        LocalDateTime.now()
+                );
 
         return ResponseEntity.ok(api);
     }
@@ -115,7 +128,9 @@ public class PaymentChargesController {
     // ================= DELETE =================
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Void>> delete(
+            @PathVariable Long id
+    ) {
 
         paymentChargeService.deletePaymentCharge(id);
 

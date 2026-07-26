@@ -58,27 +58,41 @@ public class StatsController {
             @RequestParam(required = false) Boolean settled,
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
-            @RequestParam(defaultValue = "TRANSACTION_DATE") String dateType
+            @RequestParam(defaultValue = "TRANSACTION_DATE") String dateType,
+            @RequestParam(required = false) Long merchantId
     ) {
+
         LocalDateTime to;
         LocalDateTime from;
 
-        // DEFAULT: last 7 days
+        /*
+         * DEFAULT:
+         * When both dates are absent, return the last 7 days.
+         */
         if (fromDate == null && toDate == null) {
+
             to = LocalDateTime.now();
             from = to.minusDays(7);
+
         } else {
-            from = fromDate != null
+
+            from = fromDate != null && !fromDate.isBlank()
                     ? OffsetDateTime.parse(fromDate).toLocalDateTime()
                     : null;
 
-            to = toDate != null
+            to = toDate != null && !toDate.isBlank()
                     ? OffsetDateTime.parse(toDate).toLocalDateTime()
                     : null;
         }
 
         List<SettledUnsettledReportDto> reports =
-                statsService.getSettledUnsettled(settled, from, to, dateType);
+                statsService.getSettledUnsettled(
+                        settled,
+                        from,
+                        to,
+                        dateType,
+                        merchantId
+                );
 
         return ResponseEntity.ok(reports);
     }
