@@ -118,7 +118,7 @@ public class PayoutService {
 
             // 3. Calculate charges based on amount and payment mode
             BigDecimal charges = paymentChargeService.calculateCharges(
-                    request.getAmount(), request.getPaymentMode());
+                    request.getAmount(), request.getPaymentMode(), request.getInitiatorId());
             BigDecimal totalDeduction = request.getAmount().add(charges);
 
             log.debug("Calculated charges={} totalDeduction={}", charges, totalDeduction);

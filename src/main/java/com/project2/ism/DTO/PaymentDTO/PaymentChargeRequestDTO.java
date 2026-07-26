@@ -1,6 +1,7 @@
 package com.project2.ism.DTO.PaymentDTO;
 
 import com.project2.ism.Enum.ChargeType;
+import com.project2.ism.Enum.RequestedType;
 import com.project2.ism.Model.Payment.PaymentMode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -12,6 +13,23 @@ public class PaymentChargeRequestDTO {
 
     @NotNull(message = "Mode ID is required")
     private Long modeId;
+
+    @NotNull(message = "Charge scope is required")
+    private RequestedType chargeScope;
+
+    /*
+     * Required for:
+     * DIRECT_MERCHANT
+     * FRANCHISE_MERCHANT
+     */
+    private Long merchantId;
+
+    /*
+     * Required for:
+     * FRANCHISE
+     * FRANCHISE_MERCHANT
+     */
+    private Long franchiseId;
 
     @NotNull(message = "Status is required")
     private Boolean status;
@@ -127,5 +145,29 @@ public class PaymentChargeRequestDTO {
 
     public void setSlabs(List<SlabDTO> slabs) {
         this.slabs = slabs;
+    }
+
+    public @NotNull(message = "Charge scope is required") RequestedType getChargeScope() {
+        return chargeScope;
+    }
+
+    public void setChargeScope(@NotNull(message = "Charge scope is required") RequestedType chargeScope) {
+        this.chargeScope = chargeScope;
+    }
+
+    public Long getMerchantId() {
+        return merchantId;
+    }
+
+    public void setMerchantId(Long merchantId) {
+        this.merchantId = merchantId;
+    }
+
+    public Long getFranchiseId() {
+        return franchiseId;
+    }
+
+    public void setFranchiseId(Long franchiseId) {
+        this.franchiseId = franchiseId;
     }
 }

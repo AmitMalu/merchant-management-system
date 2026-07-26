@@ -2,6 +2,9 @@ package com.project2.ism.Model.Payment;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import com.project2.ism.Enum.RequestedType;
+import com.project2.ism.Model.Users.Franchise;
+import com.project2.ism.Model.Users.Merchant;
 import jakarta.persistence.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -23,6 +26,31 @@ public class PaymentCharges {
     @JoinColumn(name = "mode_id", nullable = false)
     private PaymentMode mode;
 
+    /*
+     * GLOBAL
+     * DIRECT_MERCHANT
+     * FRANCHISE
+     * FRANCHISE_MERCHANT
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "charge_scope", nullable = false, length = 30)
+    private RequestedType chargeScope = RequestedType.GLOBAL;
+
+    /*
+     * Filled when scope is:
+     * DIRECT_MERCHANT or FRANCHISE_MERCHANT
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "merchant_id", nullable = true)
+    private Merchant merchant;
+
+    /*
+     * Filled when scope is:
+     * FRANCHISE or FRANCHISE_MERCHANT
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "franchise_id", nullable = true)
+    private Franchise franchise;
 
     @Column(nullable = false)
     private Boolean status;
@@ -121,4 +149,27 @@ public class PaymentCharges {
         this.slabs = slabs;
     }
 
+    public Franchise getFranchise() {
+        return franchise;
+    }
+
+    public void setFranchise(Franchise franchise) {
+        this.franchise = franchise;
+    }
+
+    public Merchant getMerchant() {
+        return merchant;
+    }
+
+    public void setMerchant(Merchant merchant) {
+        this.merchant = merchant;
+    }
+
+    public RequestedType getChargeScope() {
+        return chargeScope;
+    }
+
+    public void setChargeScope(RequestedType chargeScope) {
+        this.chargeScope = chargeScope;
+    }
 }

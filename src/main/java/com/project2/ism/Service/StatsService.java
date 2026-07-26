@@ -158,8 +158,34 @@ public class StatsService {
         return merchantRepository.getMerchantReports();
     }
 
-    public List<SettledUnsettledReportDto> getSettledUnsettled(Boolean settled, LocalDateTime fromDate, LocalDateTime toDate, String dateType) {
-        return vendorTransactionsRepository.getSettledUnsettledReports(settled, fromDate, toDate, dateType);
+    public List<SettledUnsettledReportDto> getSettledUnsettled(
+            Boolean settled,
+            LocalDateTime fromDate,
+            LocalDateTime toDate,
+            String dateType,
+            Long merchantId
+    ) {
+
+        String normalizedDateType =
+                dateType == null || dateType.isBlank()
+                        ? "TRANSACTION_DATE"
+                        : dateType.trim().toUpperCase();
+
+        if (!normalizedDateType.equals("TRANSACTION_DATE")
+                && !normalizedDateType.equals("SETTLEMENT_DATE")) {
+
+            throw new IllegalArgumentException(
+                    "Invalid dateType. Allowed values are TRANSACTION_DATE and SETTLEMENT_DATE"
+            );
+        }
+
+        return vendorTransactionsRepository.getSettledUnsettledReports(
+                settled,
+                fromDate,
+                toDate,
+                normalizedDateType,
+                merchantId
+        );
     }
 
 }
