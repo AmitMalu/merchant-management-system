@@ -20,10 +20,10 @@ public class PricingScheme {
     @Column(name = "scheme_code", unique = true, nullable = false)
     private String schemeCode;
 
-    @NotNull(message = "Please select a category")
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "product_category_id", nullable = false)
-    private ProductCategory productCategory;
+//    @NotNull(message = "Please select a category")
+//    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+//    @JoinColumn(name = "product_category_id", nullable = false)
+//    private ProductCategory productCategory;                    //Eventually will be removed. remove from here
 
     @Column(name = "rental_by_month", nullable = false)
     private Double rentalByMonth;
@@ -70,13 +70,13 @@ public class PricingScheme {
         cardRate.setPricingScheme(null);
     }
 
-    public ProductCategory getProductCategory() {
-        return productCategory;
-    }
-
-    public void setProductCategory(ProductCategory productCategory) {
-        this.productCategory = productCategory;
-    }
+//    public ProductCategory getProductCategory() {
+//        return productCategory;
+//    }
+//
+//    public void setProductCategory(ProductCategory productCategory) {
+//        this.productCategory = productCategory;
+//    }
 
     // Getters and Setters
     public Long getId() {

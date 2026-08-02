@@ -66,24 +66,44 @@ public class PricingSchemeController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "schemeCode") String sortBy,
-            @RequestParam(defaultValue = "asc") String sortDir) {
+            @RequestParam(defaultValue = "asc") String sortDir
+    ) {
 
         try {
-            logger.debug("REST request to get all Pricing Schemes - page: {}, size: {}, sortBy: {}, sortDir: {}",
-                    page, size, sortBy, sortDir);
 
-            Sort sort = sortDir.equalsIgnoreCase("desc") ?
-                    Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
+            logger.debug(
+                    "REST request to get all Pricing Schemes - page: {}, size: {}, sortBy: {}, sortDir: {}",
+                    page,
+                    size,
+                    sortBy,
+                    sortDir
+            );
+
+            Sort sort = sortDir.equalsIgnoreCase("desc")
+                    ? Sort.by(sortBy).descending()
+                    : Sort.by(sortBy).ascending();
 
             Pageable pageable = PageRequest.of(page, size, sort);
+
             Page<PricingScheme> schemes = pricingSchemeService.getAllPricingSchemes(pageable);
 
             return ResponseEntity.ok(schemes.map(PricingSchemeDTO::fromEntity));
+
         } catch (Exception e) {
-            logger.error("Error fetching pricing schemes: {}", e.getMessage());
+
+            logger.error(
+                    "Error fetching pricing schemes: {}",
+                    e.getMessage(),
+                    e
+            );
+
             Map<String, String> error = new HashMap<>();
             error.put("error", "Failed to fetch pricing schemes");
-            return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+
+            return new ResponseEntity<>(
+                    error,
+                    HttpStatus.INTERNAL_SERVER_ERROR
+            );
         }
     }
 
@@ -285,8 +305,19 @@ public class PricingSchemeController {
 
 
     @GetMapping("/valid-pricing-scheme")
-    public ResponseEntity<PricingSchemesResponseDTO> validPricingScheme(@RequestParam Long productId, String productCategory,String customerType){
-        PricingSchemesResponseDTO validScheme = pricingSchemeService.getValidPricingScheme(productId,productCategory,customerType);
+    public ResponseEntity<PricingSchemesResponseDTO> validPricingScheme(
+            @RequestParam Long productId,
+            @RequestParam String productCategory,
+            @RequestParam String customerType
+    ) {
+
+        PricingSchemesResponseDTO validScheme =
+                pricingSchemeService.getValidPricingScheme(
+                        productId,
+                        productCategory,
+                        customerType
+                );
+
         return ResponseEntity.ok(validScheme);
     }
 }
