@@ -2,10 +2,24 @@
 package com.project2.ism.Model.PricingScheme;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.project2.ism.Model.ProductCategory;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
 
 @Entity
-@Table(name = "card_rates")
+@Table(
+        name = "card_rates",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_scheme_product_card",
+                        columnNames = {
+                                "pricing_scheme_id",
+                                "product_category_id",
+                                "card_name"
+                        }
+                )
+        }
+)
 public class CardRate {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,6 +44,11 @@ public class CardRate {
 
     @Column(name = "category")
     private String category;
+
+    @NotNull(message = "Please select a category")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_category_id", nullable = false)
+    private ProductCategory productCategory;    //Added a new column
 
     // Getters and Setters
     public Long getId() {
@@ -76,9 +95,7 @@ public class CardRate {
         return pricingScheme;
     }
 
-    public void setPricingScheme(PricingScheme pricingScheme) {
-        this.pricingScheme = pricingScheme;
-    }
+    public void setPricingScheme(PricingScheme pricingScheme) { this.pricingScheme = pricingScheme; }
 
     public String getCategory() {
         return category;
@@ -87,5 +104,9 @@ public class CardRate {
     public void setCategory(String category) {
         this.category = category;
     }
+
+    public ProductCategory getProductCategory() { return productCategory; }
+
+    public void setProductCategory(ProductCategory productCategory) { this.productCategory = productCategory; }
 }
 

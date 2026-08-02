@@ -33,21 +33,49 @@ public interface PricingSchemeRepository extends JpaRepository<PricingScheme, Lo
                                   @Param("customerType") String customerType,
                                   @Param("excludeId") Long excludeId);
 
-
-
-    @Query("SELECT CASE WHEN COUNT(ps) > 0 THEN true ELSE false END FROM PricingScheme ps " +
-            "WHERE ps.schemeCode = :schemeCode AND ps.rentalByMonth = :rentalByMonth " +
-            "AND ps.customerType = :customerType")
-    boolean existsDuplicateSchemeForNew(@Param("schemeCode") String schemeCode,
-                                        @Param("rentalByMonth") Double rentalByMonth,
-                                        @Param("customerType") String customerType);
-
     Optional<PricingScheme> findTopByOrderBySchemeCodeDesc();
-
-
-    List<PricingScheme> findByProductCategory_IdAndCustomerType(Long productCategoryId, String customerType);
 
     // Repository method
     @Query("SELECT p.customerType, COUNT(p) FROM PricingScheme p GROUP BY p.customerType")
     List<Object[]> countByCustomerType();
+
+    @Query("""
+    SELECT DISTINCT ps
+    FROM PricingScheme ps
+    LEFT JOIN FETCH ps.cardRates cr
+    LEFT JOIN FETCH cr.productCategory
+    WHERE ps.id = :id
+""")
+    Optional<PricingScheme> findByIdWithCardRatesAndProductCategory(
+            @Param("id") Long id
+    );
+
+    @Query("""
+    SELECT DISTINCT ps
+    FROM PricingScheme ps
+    JOIN FETCH ps.cardRates cr
+    JOIN FETCH cr.productCategory pc
+    WHERE pc.id = :productCategoryId
+      AND UPPER(ps.customerType) = UPPER(:customerType)
+""")
+    List<PricingScheme> findValidSchemesByProductCategoryAndCustomerType(
+            @Param("productCategoryId") Long productCategoryId,
+            @Param("customerType") String customerType
+    );
+
+    @Query(
+            value = """
+                SELECT DISTINCT ps
+                FROM PricingScheme ps
+                LEFT JOIN FETCH ps.cardRates cr
+                LEFT JOIN FETCH cr.productCategory
+                """,
+            countQuery = """
+                SELECT COUNT(ps)
+                FROM PricingScheme ps
+                """
+    )
+    Page<PricingScheme> findAllWithCardRatesAndProductCategory(
+            Pageable pageable
+    );
 }

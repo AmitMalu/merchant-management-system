@@ -17,10 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -304,69 +301,216 @@ public class CustomerSchemeAssignmentService {
     }
 
     @Transactional
-    public CustomerSchemeAssignmentDTO franchiseUpdateRate(Long assignmentId, List<CardRateDTO> newRates) {
-        CustomerSchemeAssignment assignment = assignmentRepo.findById(assignmentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Assignment not found with id: " + assignmentId));
+    public CustomerSchemeAssignmentDTO franchiseUpdateRate(
+            Long assignmentId,
+            List<CardRateDTO> newRates
+    ) {
+
+        CustomerSchemeAssignment assignment =
+                assignmentRepo.findById(assignmentId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Assignment not found with id: " + assignmentId
+                                )
+                        );
 
         if (Boolean.TRUE.equals(assignment.getIsRateChanged())) {
-            throw new IllegalArgumentException("Rates have already been overridden for this assignment.");
+            throw new IllegalArgumentException(
+                    "Rates have already been overridden for this assignment."
+            );
         }
 
         PricingScheme originalScheme = assignment.getScheme();
+
         if (originalScheme == null) {
-            throw new ResourceNotFoundException("No pricing scheme associated with this assignment.");
+            throw new ResourceNotFoundException(
+                    "No pricing scheme associated with this assignment."
+            );
         }
 
-        // Clone/create a new pricing scheme
+        if (originalScheme.getCardRates() == null ||
+                originalScheme.getCardRates().isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "The assigned pricing scheme does not contain any card rates."
+            );
+        }
+
+        if (newRates == null) {
+            newRates = Collections.emptyList();
+        }
+
+        /*
+         * Key format:
+         * productCategoryId_cardName
+         *
+         * This is necessary because the same card name can exist
+         * under multiple product categories.
+         */
+        Map<String, Double> newRateMap =
+                newRates.stream()
+                        .filter(Objects::nonNull)
+                        .filter(rate ->
+                                rate.productCategoryId() != null &&
+                                        rate.cardName() != null &&
+                                        !rate.cardName().isBlank()
+                        )
+                        .collect(
+                                Collectors.toMap(
+                                        rate -> buildCardRateKey(
+                                                rate.productCategoryId(),
+                                                rate.cardName()
+                                        ),
+                                        rate -> rate.merchantRate() != null
+                                                ? rate.merchantRate()
+                                                : 0.0,
+                                        (existingRate, replacementRate) -> {
+                                            throw new IllegalArgumentException(
+                                                    "Duplicate product and card combination found in request."
+                                            );
+                                        }
+                                )
+                        );
+
+        // Create cloned pricing scheme
         PricingScheme newScheme = new PricingScheme();
 
-        // Generate new scheme code
-        String newCode = pricingSchemeService.generateNextSchemeCode();
+        String newCode =
+                pricingSchemeService.generateNextSchemeCode();
+
         newScheme.setSchemeCode(newCode);
-        newScheme.setProductCategory(originalScheme.getProductCategory());
-        newScheme.setRentalByMonth(originalScheme.getRentalByMonth());
-        newScheme.setGst(originalScheme.getGst());
-        newScheme.setCustomerType(originalScheme.getCustomerType());
-        newScheme.setDescription(originalScheme.getDescription() + " (Modified by franchise for assignment ID: " + assignmentId + ")");
+        newScheme.setRentalByMonth(
+                originalScheme.getRentalByMonth()
+        );
+        newScheme.setGst(
+                originalScheme.getGst()
+        );
+        newScheme.setCustomerType(
+                originalScheme.getCustomerType()
+        );
 
-        // Map the incoming new rates by card name for easy lookup
-        Map<String, Double> newRateMap = newRates.stream()
-                .filter(r -> r.cardName() != null)
-                .collect(Collectors.toMap(CardRateDTO::cardName, r -> r.merchantRate() != null ? r.merchantRate() : 0.0));
+        String originalDescription =
+                originalScheme.getDescription() != null
+                        ? originalScheme.getDescription()
+                        : "";
 
-        // Clone the card rates, updating the merchant rates and validating against the franchise rates
-        for (CardRate originalCardRate : originalScheme.getCardRates()) {
-            CardRate newCardRate = new CardRate();
-            newCardRate.setCardName(originalCardRate.getCardName());
-            newCardRate.setCategory(originalCardRate.getCategory());
-            newCardRate.setRate(originalCardRate.getRate());
-            newCardRate.setFranchiseRate(originalCardRate.getFranchiseRate());
+        newScheme.setDescription(
+                originalDescription +
+                        " (Modified by franchise for assignment ID: " +
+                        assignmentId +
+                        ")"
+        );
 
-            Double enteredRate = newRateMap.get(originalCardRate.getCardName());
+        for (CardRate originalCardRate :
+                originalScheme.getCardRates()) {
+
+            if (originalCardRate.getProductCategory() == null ||
+                    originalCardRate.getProductCategory().getId() == null) {
+
+                throw new IllegalArgumentException(
+                        "Product category is missing for card rate: " +
+                                originalCardRate.getCardName()
+                );
+            }
+
+            Long productCategoryId =
+                    originalCardRate
+                            .getProductCategory()
+                            .getId();
+
+            String cardName =
+                    originalCardRate.getCardName();
+
+            String rateKey =
+                    buildCardRateKey(
+                            productCategoryId,
+                            cardName
+                    );
+
+            Double enteredRate =
+                    newRateMap.get(rateKey);
+
+            /*
+             * If frontend has not sent a new rate,
+             * retain the original merchant rate.
+             */
             if (enteredRate == null) {
-                enteredRate = originalCardRate.getMerchantRate() != null ? originalCardRate.getMerchantRate() : 0.0;
+                enteredRate =
+                        originalCardRate.getMerchantRate() != null
+                                ? originalCardRate.getMerchantRate()
+                                : 0.0;
             }
 
-            // Validation: merchantRate >= franchiseRate
-            Double minAllowed = originalCardRate.getFranchiseRate() != null ? originalCardRate.getFranchiseRate() : 0.0;
-            if (enteredRate < minAllowed) {
-                throw new IllegalArgumentException("Rate for " + originalCardRate.getCardName() +
-                        " (" + enteredRate + "%) cannot be less than the franchise rate (" + minAllowed + "%).");
+            Double minimumAllowedRate =
+                    originalCardRate.getFranchiseRate() != null
+                            ? originalCardRate.getFranchiseRate()
+                            : 0.0;
+
+            if (enteredRate < minimumAllowedRate) {
+                throw new IllegalArgumentException(
+                        "Merchant rate for product " +
+                                originalCardRate
+                                        .getProductCategory()
+                                        .getCategoryName() +
+                                " and card " +
+                                cardName +
+                                " (" +
+                                enteredRate +
+                                "%) cannot be less than the franchise rate (" +
+                                minimumAllowedRate +
+                                "%)."
+                );
             }
 
-            newCardRate.setMerchantRate(enteredRate);
+            CardRate newCardRate = new CardRate();
+
+            newCardRate.setProductCategory(
+                    originalCardRate.getProductCategory()
+            );
+
+            newCardRate.setCardName(
+                    originalCardRate.getCardName()
+            );
+
+            newCardRate.setCategory(
+                    originalCardRate.getCategory()
+            );
+
+            newCardRate.setFranchiseRate(
+                    originalCardRate.getFranchiseRate()
+            );
+
+            newCardRate.setMerchantRate(
+                    enteredRate
+            );
+
+            /*
+             * addCardRate must set:
+             * cardRate.setPricingScheme(this)
+             */
             newScheme.addCardRate(newCardRate);
         }
 
-        // Save the new pricing scheme
-        PricingScheme savedScheme = schemeRepo.save(newScheme);
+        PricingScheme savedScheme =
+                schemeRepo.save(newScheme);
 
-        // Update the assignment to point to the new scheme and flag it as overridden
         assignment.setScheme(savedScheme);
         assignment.setIsRateChanged(true);
-        CustomerSchemeAssignment savedAssignment = assignmentRepo.save(assignment);
+
+        CustomerSchemeAssignment savedAssignment =
+                assignmentRepo.save(assignment);
 
         return toDTO(savedAssignment);
+    }
+
+    private String buildCardRateKey(
+            Long productCategoryId,
+            String cardName
+    ) {
+
+        return productCategoryId +
+                "_" +
+                cardName.trim().toLowerCase();
     }
 
 

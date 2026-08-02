@@ -417,12 +417,10 @@ public class EnhancedSettlementService2 {
     }
 
     private CardRate getCardRateForTransaction(VendorTransactions vt, ProductSerialNumbers device) {
-//        CustomerSchemeAssignment schemeAssignment = schemeAssignRepo.findByOutwardTransaction(device.getOutwardTransaction())
-//                .orElseThrow(() -> new IllegalStateException("No pricing scheme found for device"));
 
         LocalDate txnDate = vt.getDate() != null ? vt.getDate().toLocalDate() : LocalDate.now();
 
-// Get merchant from device directly
+        // Get merchant from device directly
         Merchant merchant = device.getMerchant();
         Long franchiseId = merchant.getFranchise() != null ? merchant.getFranchise().getId() : null;
 
@@ -448,11 +446,33 @@ public class EnhancedSettlementService2 {
         String normalized = normalizeCardName(vt.getBrandType(), vt.getCardType());
         final String cardName = "UNKNOWN".equals(normalized) ? "UPI" : normalized;
 
-        return cardRateRepo.findByPricingScheme_IdAndCardNameContainingIgnoreCase(
-                        assignment.getScheme().getId(), cardName)
-                .or(() -> cardRateRepo.findByPricingScheme_IdAndCardNameContainingIgnoreCase(
-                        assignment.getScheme().getId(), "DEFAULT"))
-                .orElseThrow(() -> new IllegalStateException("No card rate found for " + cardName));
+        Long schemeId = assignment.getScheme().getId();
+
+        // Resolve product category from payment gateway → product brand → productCategory
+        // This gives us the exact card rate row for this product type within the scheme
+        ProductCategory productCategory = resolveProductCategoryFromGateway(vt, device);
+
+        if (productCategory != null) {
+            Long categoryId = productCategory.getId();
+            Optional<CardRate> crOpt = cardRateRepo
+                    .findByPricingScheme_IdAndProductCategory_IdAndCardNameIgnoreCase(schemeId, categoryId, cardName)
+                    .or(() -> cardRateRepo
+                            .findByPricingScheme_IdAndProductCategory_IdAndCardNameContainingIgnoreCase(schemeId, categoryId, "DEFAULT"));
+
+            if (crOpt.isPresent()) {
+                log.info("Card rate resolved via productCategory={} scheme={} card={}",
+                        categoryId, schemeId, cardName);
+                return crOpt.get();
+            }
+            log.warn("No card rate found with productCategory={}, falling back to scheme-only lookup for card={}",
+                    categoryId, cardName);
+        }
+
+        // Fallback: scheme-only lookup (backward compatible for data without productCategory)
+        return cardRateRepo.findByPricingScheme_IdAndCardNameContainingIgnoreCase(schemeId, cardName)
+                .or(() -> cardRateRepo.findByPricingScheme_IdAndCardNameContainingIgnoreCase(schemeId, "DEFAULT"))
+                .orElseThrow(() -> new IllegalStateException("No card rate found for card=" + cardName
+                        + " in scheme=" + schemeId));
     }
 
     private SettlementResultDTO processDirectMerchantSettlement(Merchant merchant, VendorTransactions vt,
@@ -702,105 +722,253 @@ public class EnhancedSettlementService2 {
     }
 
     private SettlementCandidateDTO mapToSettlementCandidate(VendorTransactions vt, Long expectedMerchantId, Long productId) {
+
+        log.info("[SETTLEMENT] Mapping transaction | internalId={} | txnRef={} | expectedMerchant={} | productId={}",
+                vt.getInternalId(),
+                vt.getTransactionReferenceId(),
+                expectedMerchantId,
+                productId);
+
         try {
-            Optional<ProductSerialNumbers> deviceOpt =  findDeviceForTransaction(vt);
+
+            Optional<ProductSerialNumbers> deviceOpt = findDeviceForTransaction(vt);
+
             if (deviceOpt.isEmpty()) {
+                log.warn("[SETTLEMENT] Device not found for txnRef={}", vt.getTransactionReferenceId());
                 return SettlementCandidateDTO.notFound(vt, "DEVICE_NOT_FOUND");
             }
 
             ProductSerialNumbers device = deviceOpt.get();
 
+            log.info("[SETTLEMENT] Device found | serialNo={} | merchantId={} | productId={}",
+                    device.getProduct().getModel(),
+                    device.getMerchant().getId(),
+                    device.getProduct().getId());
+
             if (!expectedMerchantId.equals(device.getMerchant().getId())) {
+                log.warn("[SETTLEMENT] Merchant mismatch | expected={} | actual={} | txnRef={}",
+                        expectedMerchantId,
+                        device.getMerchant().getId(),
+                        vt.getTransactionReferenceId());
+
                 return SettlementCandidateDTO.notFound(vt, "WRONG_MERCHANT");
             }
 
-            // Check if device belongs to the specified product
             if (productId != null && !productId.equals(device.getProduct().getId())) {
+
+                log.warn("[SETTLEMENT] Product mismatch | expected={} | actual={} | txnRef={}",
+                        productId,
+                        device.getProduct().getId(),
+                        vt.getTransactionReferenceId());
+
                 return SettlementCandidateDTO.notFound(vt, "WRONG_PRODUCT");
             }
 
-            // 🔹 Determine merchant/franchise for scheme lookup
             Merchant merchant = device.getMerchant();
-            Long franchiseId = merchant.getFranchise() != null ? merchant.getFranchise().getId() : null;
 
-            LocalDate txnDate = vt.getDate() != null ? vt.getDate().toLocalDate() : LocalDate.now();
+            LocalDate txnDate =
+                    vt.getDate() != null
+                            ? vt.getDate().toLocalDate()
+                            : LocalDate.now();
 
-            Optional<CustomerSchemeAssignment> schemeOpt;
-//            if (franchiseId != null) {
-//                schemeOpt = schemeAssignRepo.findActiveSchemeForFranchiseAndProduct(
-//                        franchiseId,
-//                        device.getProduct().getId(),
-//                        txnDate
-//                );
-//            } else {
-                schemeOpt = schemeAssignRepo.findActiveSchemeForMerchantAndProduct(
-                        merchant.getId(),
-                        device.getProduct().getId(),
-                        txnDate
-                );
-           // }
+            log.info("[SETTLEMENT] Finding active scheme | merchantId={} | productId={} | txnDate={}",
+                    merchant.getId(),
+                    device.getProduct().getId(),
+                    txnDate);
+
+            Optional<CustomerSchemeAssignment> schemeOpt =
+                    schemeAssignRepo.findActiveSchemeForMerchantAndProduct(
+                            merchant.getId(),
+                            device.getProduct().getId(),
+                            txnDate
+                    );
 
             if (schemeOpt.isEmpty()) {
+                log.warn("[SETTLEMENT] No pricing scheme found | merchantId={} | productId={}",
+                        merchant.getId(),
+                        device.getProduct().getId());
+
                 return SettlementCandidateDTO.notFound(vt, "NO_PRICING_SCHEME");
             }
 
             CustomerSchemeAssignment scheme = schemeOpt.get();
 
-            // 🔹 Fetch card rate
+            Long schemeId = scheme.getScheme().getId();
+
+            log.info("[SETTLEMENT] Pricing scheme resolved | schemeId={}", schemeId);
+
             String cardName = normalizeCardName(vt.getBrandType(), vt.getCardType());
-            if("UNKNOWN".equals(cardName)) {
+
+            if ("UNKNOWN".equals(cardName)) {
                 cardName = "UPI";
             }
-            //what i have to do is if card name is UNKNOWN then cardName should be UPI
-            Optional<CardRate> crOpt = cardRateRepo.findByPricingScheme_IdAndCardNameContainingIgnoreCase(
-                            scheme.getScheme().getId(), cardName)
-                    .or(() -> cardRateRepo.findByPricingScheme_IdAndCardNameContainingIgnoreCase(
-                            scheme.getScheme().getId(), "DEFAULT"));
+
+            log.info("[SETTLEMENT] Normalized card | brand={} | cardType={} | normalized={}",
+                    vt.getBrandType(),
+                    vt.getCardType(),
+                    cardName);
+
+            ProductCategory productCategory =
+                    resolveProductCategoryFromGateway(vt, device);
+
+            if (productCategory != null) {
+                log.info("[SETTLEMENT] Product category resolved | id={} | name={}",
+                        productCategory.getId(),
+                        productCategory.getCategoryName());
+            } else {
+                log.warn("[SETTLEMENT] Product category could not be resolved for txn={}",
+                        vt.getTransactionReferenceId());
+            }
+
+            Optional<CardRate> crOpt;
+
+            if (productCategory != null) {
+
+                Long categoryId = productCategory.getId();
+
+                crOpt = cardRateRepo
+                        .findByPricingScheme_IdAndProductCategory_IdAndCardNameIgnoreCase(
+                                schemeId,
+                                categoryId,
+                                cardName
+                        )
+                        .or(() -> cardRateRepo
+                                .findByPricingScheme_IdAndProductCategory_IdAndCardNameContainingIgnoreCase(
+                                        schemeId,
+                                        categoryId,
+                                        "DEFAULT"));
+
+                if (crOpt.isEmpty()) {
+
+                    log.warn("[SETTLEMENT] Card rate not found for category={} card={}, trying scheme fallback",
+                            categoryId,
+                            cardName);
+
+                    crOpt = cardRateRepo
+                            .findByPricingScheme_IdAndCardNameContainingIgnoreCase(
+                                    schemeId,
+                                    cardName
+                            )
+                            .or(() -> cardRateRepo
+                                    .findByPricingScheme_IdAndCardNameContainingIgnoreCase(
+                                            schemeId,
+                                            "DEFAULT"));
+
+                } else {
+
+                    log.info("[SETTLEMENT] Card rate found using product category");
+                }
+
+            } else {
+
+                log.warn("[SETTLEMENT] paymentGateway blank, using scheme-only lookup");
+
+                crOpt = cardRateRepo
+                        .findByPricingScheme_IdAndCardNameContainingIgnoreCase(
+                                schemeId,
+                                cardName
+                        )
+                        .or(() -> cardRateRepo
+                                .findByPricingScheme_IdAndCardNameContainingIgnoreCase(
+                                        schemeId,
+                                        "DEFAULT"));
+            }
 
             if (crOpt.isEmpty()) {
+
+                log.warn("[SETTLEMENT] No card rate configured | schemeId={} | card={}",
+                        schemeId,
+                        cardName);
+
                 return SettlementCandidateDTO.notFound(vt, "NO_CARD_RATE");
             }
 
             CardRate cr = crOpt.get();
-            BigDecimal amount = vt.getAmount() == null ? BigDecimal.ZERO : vt.getAmount();
 
-            // 🔹 Determine applicable rate for franchise merchants
-            boolean isFranchiseMerchant = merchant.getFranchise() != null;
-            // 🔹 Check for historical rates if rate was changed after transaction
-            LocalDateTime transactionDateTime = vt.getDate();
+            log.info("[SETTLEMENT] Card rate resolved | rate={} | merchantRate={}",
+                    cr.getRate(),
+                    cr.getMerchantRate());
+
+            BigDecimal amount =
+                    vt.getAmount() == null
+                            ? BigDecimal.ZERO
+                            : vt.getAmount();
+
+            boolean isFranchiseMerchant =
+                    merchant.getFranchise() != null;
+
+            LocalDateTime transactionDateTime =
+                    vt.getDate();
+
             Double rateToUse;
 
             if (isFranchiseMerchant && cr.getMerchantRate() != null) {
-                // For franchise merchants, check merchant_rate field
-                Double historicalRate = getHistoricalRateIfChanged(cr, transactionDateTime, "merchant_rate");
-                rateToUse = historicalRate != null ? historicalRate : cr.getMerchantRate();
 
-                if (historicalRate != null) {
-                    log.info("Using historical merchant rate {} (current: {}) for preview of transaction dated {} for card {}",
-                            historicalRate, cr.getMerchantRate(), transactionDateTime, cr.getCardName());
-                }
+                Double historicalRate =
+                        getHistoricalRateIfChanged(
+                                cr,
+                                transactionDateTime,
+                                "merchant_rate"
+                        );
+
+                rateToUse =
+                        historicalRate != null
+                                ? historicalRate
+                                : cr.getMerchantRate();
+
+                log.info("[SETTLEMENT] Franchise merchant | applicableRate={}",
+                        rateToUse);
+
             } else {
-                // For direct merchants, check rate field
-                Double historicalRate = getHistoricalRateIfChanged(cr, transactionDateTime, "rate");
-                rateToUse = historicalRate != null ? historicalRate : cr.getRate();
 
-                if (historicalRate != null) {
-                    log.info("Using historical rate {} (current: {}) for preview of transaction dated {} for card {}",
-                            historicalRate, cr.getRate(), transactionDateTime, cr.getCardName());
-                }
+                Double historicalRate =
+                        getHistoricalRateIfChanged(
+                                cr,
+                                transactionDateTime,
+                                "rate"
+                        );
+
+                rateToUse =
+                        historicalRate != null
+                                ? historicalRate
+                                : cr.getRate();
+
+                log.info("[SETTLEMENT] Direct merchant | applicableRate={}",
+                        rateToUse);
             }
 
-
             if (rateToUse == null) {
+
+                log.warn("[SETTLEMENT] No applicable rate configured");
+
                 return SettlementCandidateDTO.notFound(vt, "NO_RATE_CONFIGURED");
             }
 
-            BigDecimal feePct = amount.signum() > 0
-                    ? BigDecimal.valueOf(rateToUse).movePointLeft(2)
-                    : BigDecimal.ZERO;
-            BigDecimal fee = amount.multiply(feePct).setScale(2, RoundingMode.HALF_UP);
-            if (fee.compareTo(amount.abs()) > 0) fee = amount.abs();
-            BigDecimal net = amount.subtract(fee).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal feePct =
+                    amount.signum() > 0
+                            ? BigDecimal.valueOf(rateToUse).movePointLeft(2)
+                            : BigDecimal.ZERO;
+
+            BigDecimal fee =
+                    amount.multiply(feePct)
+                            .setScale(2, RoundingMode.HALF_UP);
+
+            if (fee.compareTo(amount.abs()) > 0) {
+                fee = amount.abs();
+            }
+
+            BigDecimal net =
+                    amount.subtract(fee)
+                            .setScale(2, RoundingMode.HALF_UP);
+
+            log.info("[SETTLEMENT] Calculation completed | amount={} | rate={} | fee={} | net={}",
+                    amount,
+                    rateToUse,
+                    fee,
+                    net);
+
+            log.info("[SETTLEMENT] Settlement candidate created successfully | txnRef={}",
+                    vt.getTransactionReferenceId());
 
             return new SettlementCandidateDTO(
                     vt.getInternalId(),
@@ -817,11 +985,61 @@ public class EnhancedSettlementService2 {
             );
 
         } catch (Exception ex) {
-            log.error("Error mapping vendor transaction {}", vt.getInternalId(), ex);
-            return SettlementCandidateDTO.notFound(vt, "MAPPING_ERROR: " + ex.getMessage());
+
+            log.error("[SETTLEMENT] Error mapping transaction | internalId={} | txnRef={}",
+                    vt.getInternalId(),
+                    vt.getTransactionReferenceId(),
+                    ex);
+
+            return SettlementCandidateDTO.notFound(
+                    vt,
+                    "MAPPING_ERROR: " + ex.getMessage()
+            );
         }
+    }
 
-
+    /**
+     * Resolves the ProductCategory for a vendor transaction using the lookup chain:
+     *   VendorTransactions.paymentGateway  →  matches Product.brand (case-insensitive)
+     *   →  Product.productCategory
+     *
+     * The device is already resolved, so we use it directly.
+     * Returns null (not throws) so callers can fall back gracefully.
+     */
+    private ProductCategory resolveProductCategoryFromGateway(VendorTransactions vt, ProductSerialNumbers device) {
+        try {
+            // First try: use the product already associated with the device — it carries productCategory
+            Product deviceProduct = device.getProduct();
+            if (deviceProduct != null && deviceProduct.getProductCategory() != null) {
+                // Verify the product's brand matches the transaction's paymentGateway
+                String gateway = vt.getPaymentGateway();
+                if (gateway != null && !gateway.isBlank()) {
+                    if (gateway.equalsIgnoreCase(deviceProduct.getBrand())) {
+                        log.debug("productCategory resolved from device product: brand={} categoryId={}",
+                                deviceProduct.getBrand(), deviceProduct.getProductCategory().getId());
+                        return deviceProduct.getProductCategory();
+                    }
+                    // Gateway present but doesn't match — look up by brand from product table
+                    log.debug("paymentGateway={} does not match device product brand={}, looking up by brand",
+                            gateway, deviceProduct.getBrand());
+                    List<Product> byBrand = productRepository.findByBrandIgnoreCaseOrderByProductNameAsc(gateway);
+                    if (!byBrand.isEmpty() && byBrand.get(0).getProductCategory() != null) {
+                        log.debug("productCategory resolved from brand lookup: brand={} categoryId={}",
+                                gateway, byBrand.get(0).getProductCategory().getId());
+                        return byBrand.get(0).getProductCategory();
+                    }
+                } else {
+                    // No paymentGateway on transaction — use device product's category directly
+                    log.debug("No paymentGateway on txn, using device product category: categoryId={}",
+                            deviceProduct.getProductCategory().getId());
+                    return deviceProduct.getProductCategory();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve productCategory for txn={}: {}",
+                    vt.getTransactionReferenceId(), e.getMessage());
+        }
+        return null;
     }
 
     // ==================== READ-ONLY METHODS ====================
