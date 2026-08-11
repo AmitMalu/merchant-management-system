@@ -58,6 +58,8 @@ public class MerchantService {
 
     private final DigiLockerService digilockerService;
 
+    private final ProductSerialNumbersRepository productSerialNumbersRepository;
+
 
     public MerchantService(MerchantRepository merchantRepository,
                            FranchiseRepository franchiseRepository,
@@ -66,7 +68,8 @@ public class MerchantService {
                            ProductSerialsRepository serialRepo, ProductRepository productRepository,
                            MerchantWalletRepository merchantWalletRepository,
                            ProductDistributionRepository productDistributionRepository,
-                           DigiLockerService digilockerService
+                           DigiLockerService digilockerService,
+                           ProductSerialNumbersRepository productSerialNumbersRepository
 ) {
         this.merchantRepository = merchantRepository;
         this.franchiseRepository = franchiseRepository;
@@ -78,6 +81,7 @@ public class MerchantService {
         this.merchantWalletRepository = merchantWalletRepository;
         this.productDistributionRepository = productDistributionRepository;
         this.digilockerService = digilockerService;
+        this.productSerialNumbersRepository = productSerialNumbersRepository;
     }
 
     public void createMerchant(MerchantFormDTO dto) {
@@ -510,16 +514,20 @@ public class MerchantService {
 
             for (Product p : products) {
 
-                // Step 3: Get quantity from product_distribution
-                Integer quantity = productDistributionRepository
-                        .findQuantityByMerchantAndFranchise(merchantId, franchise.getId());
+                Long quantity = productSerialNumbersRepository
+                        .findQuantityByMerchantFranchiseAndProduct(
+                                merchantId,
+                                franchise.getId(),
+                                p.getId()
+                        );
 
                 result.add(new MerchantProductSummaryDTO(
+                        null,
                         p.getId(),
                         p.getProductName(),
                         p.getProductCode(),
                         p.getProductCategory().getCategoryName(),
-                        quantity != null ? quantity : 0
+                        quantity != null ? quantity.intValue() : 0
                 ));
             }
         }
