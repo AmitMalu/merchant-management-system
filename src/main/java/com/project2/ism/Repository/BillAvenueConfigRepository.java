@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * @author SHUBHAM KHOPADE
@@ -42,4 +43,9 @@ public interface BillAvenueConfigRepository extends JpaRepository<BillAvenueConf
             @Param("vendorName") String vendorName,
             @Param("serviceName") String serviceName);
 
+    Optional<BillAvenueConfig> findByProviderId(String providerId);
+
+    List<BillAvenueConfig> findByProviderIdIn(List<String> providerIds);
+
 }
+

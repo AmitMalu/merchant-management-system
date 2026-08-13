@@ -1,11 +1,14 @@
+
+
+
 package com.project2.ism.Service;
 
+import com.project2.ism.DTO.BillAvenueCredentials;
 import com.project2.ism.DTO.Vendor.VendorCredentialsRequestDTO;
 import com.project2.ism.DTO.Vendor.VendorCredentialsResponseDTO;
 import com.project2.ism.DTO.VendorCredentialDTO;
 import com.project2.ism.Model.Payment.PaymentVendor;
 import com.project2.ism.Model.Payment.PaymentVendorCredentials;
-import com.project2.ism.Model.Payment.PaymentVendorLog;
 import com.project2.ism.Repository.PaymentProductRepository;
 import com.project2.ism.Repository.PaymentVendorCredentialsRepository;
 import com.project2.ism.Repository.PaymentVendorRepository;
@@ -329,5 +332,44 @@ public class PaymentVendorCredentialsService {
 
         return dto;
     }
-}
 
+    public BillAvenueCredentials getBillAvenueCredentials(Long vendorId) {
+
+        PaymentVendorCredentials credentials =
+                getActiveEnvironmentCredentials(vendorId);
+
+        boolean uat =
+                "UAT".equalsIgnoreCase(
+                        credentials.getActiveEnvironment()
+                );
+
+        return new BillAvenueCredentials(
+
+                // Base URL
+                uat
+                        ? credentials.getBaseUrlUat()
+                        : credentials.getBaseUrlProd(),
+
+                // Secret key
+                uat
+                        ? credentials.getSecretKeyUat()
+                        : credentials.getSecretKeyProd(),
+
+                // Bill Avenue Agent ID
+                uat
+                        ? credentials.getSaltKeyUat()
+                        : credentials.getSaltKeyProd(),
+
+                // Bill Avenue Access Code
+                uat
+                        ? credentials.getEncryptDecryptKeyUat()
+                        : credentials.getEncryptDecryptKeyProd(),
+
+                // Bill Avenue Institute ID
+                uat
+                        ? credentials.getUserIdUat()
+                        : credentials.getUserIdProd()
+
+        );
+    }
+}

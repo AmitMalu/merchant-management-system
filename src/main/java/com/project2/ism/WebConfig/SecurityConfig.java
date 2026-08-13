@@ -60,6 +60,8 @@ public class SecurityConfig {
 
                         .requestMatchers("/update-transaction/**").permitAll()      //remove this later
 
+                        .requestMatchers("/billpay/config/**").permitAll()      //remove this later
+
                         .requestMatchers(
                                 "/payment-payout/callback",
                                 "/tools/encrypt/**"
