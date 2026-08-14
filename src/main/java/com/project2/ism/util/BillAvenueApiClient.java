@@ -63,11 +63,30 @@ public class BillAvenueApiClient {
             String requestJson
     ) throws Exception {
 
+        log.info(
+                "Bill Avenue API call started. vendorId={}, apiType={}, requestId={}",
+                vendorId,
+                apiType,
+                requestId
+        );
+
         // Generate requestId ONLY for BILLER_INFO
         if (apiType == BillAvenueApiType.BILLER_INFO) {
 
             if (requestId == null || requestId.isBlank()) {
+
+                log.debug(
+                        "RequestId not provided for BILLER_INFO. Generating new requestId. vendorId={}",
+                        vendorId
+                );
+
                 requestId = BillAvenueIVGenerator.generate();
+
+                log.debug(
+                        "RequestId generated successfully. vendorId={}, requestId={}",
+                        vendorId,
+                        requestId
+                );
             }
         }
 
@@ -75,15 +94,36 @@ public class BillAvenueApiClient {
         else {
 
             if (requestId == null || requestId.isBlank()) {
+
+                log.warn(
+                        "RequestId missing for Bill Avenue API. vendorId={}, apiType={}",
+                        vendorId,
+                        apiType
+                );
+
                 throw new IllegalArgumentException(
                         "requestId is required for " + apiType
                 );
             }
         }
 
+        log.debug(
+                "Fetching Bill Avenue credentials. vendorId={}, apiType={}, requestId={}",
+                vendorId,
+                apiType,
+                requestId
+        );
+
         BillAvenueCredentials credentials =
                 credentialsService
                         .getBillAvenueCredentials(vendorId);
+
+        log.debug(
+                "Bill Avenue credentials loaded successfully. vendorId={}, apiType={}, requestId={}",
+                vendorId,
+                apiType,
+                requestId
+        );
 
         String encryptedRequest = null;
         String encryptedResponse = null;
@@ -97,11 +137,28 @@ public class BillAvenueApiClient {
             // 1. Encrypt request
             // -----------------------------------------
 
+            log.debug(
+                    "Encrypting Bill Avenue request. vendorId={}, apiType={}, requestId={}",
+                    vendorId,
+                    apiType,
+                    requestId
+            );
+
             encryptedRequest =
                     BillAvenueCryptoUtil.encrypt(
                             requestJson,
                             credentials.encryptDecryptKey()
                     );
+
+            log.debug(
+                    "Bill Avenue request encrypted successfully. vendorId={}, apiType={}, requestId={}, payloadSize={}",
+                    vendorId,
+                    apiType,
+                    requestId,
+                    encryptedRequest != null
+                            ? encryptedRequest.length()
+                            : 0
+            );
 
             // -----------------------------------------
             // 2. Build URL
@@ -114,6 +171,13 @@ public class BillAvenueApiClient {
                             requestId,
                             encryptedRequest
                     );
+
+            log.debug(
+                    "Bill Avenue request URL built successfully. vendorId={}, apiType={}, requestId={}",
+                    vendorId,
+                    apiType,
+                    requestId
+            );
 
             // -----------------------------------------
             // 3. Headers
@@ -136,6 +200,13 @@ public class BillAvenueApiClient {
             // 4. Vendor API call
             // -----------------------------------------
 
+            log.info(
+                    "Calling Bill Avenue API. vendorId={}, apiType={}, requestId={}",
+                    vendorId,
+                    apiType,
+                    requestId
+            );
+
             ResponseEntity<String> response =
                     restTemplate.exchange(
                             url,
@@ -150,15 +221,43 @@ public class BillAvenueApiClient {
             encryptedResponse =
                     response.getBody();
 
+            log.info(
+                    "Bill Avenue API response received. vendorId={}, apiType={}, requestId={}, statusCode={}, responseSize={}",
+                    vendorId,
+                    apiType,
+                    requestId,
+                    statusCode,
+                    encryptedResponse != null
+                            ? encryptedResponse.length()
+                            : 0
+            );
+
             // -----------------------------------------
             // 5. Decrypt
             // -----------------------------------------
+
+            log.debug(
+                    "Decrypting Bill Avenue response. vendorId={}, apiType={}, requestId={}",
+                    vendorId,
+                    apiType,
+                    requestId
+            );
 
             decryptedResponse =
                     BillAvenueCryptoUtil.decrypt(
                             encryptedResponse,
                             credentials.encryptDecryptKey()
                     );
+
+            log.debug(
+                    "Bill Avenue response decrypted successfully. vendorId={}, apiType={}, requestId={}, responseSize={}",
+                    vendorId,
+                    apiType,
+                    requestId,
+                    decryptedResponse != null
+                            ? decryptedResponse.length()
+                            : 0
+            );
 
             // -----------------------------------------
             // 6. SUCCESS vendor log
@@ -174,9 +273,27 @@ public class BillAvenueApiClient {
                     decryptedResponse
             );
 
+            log.info(
+                    "Bill Avenue API call completed successfully. vendorId={}, apiType={}, requestId={}, statusCode={}",
+                    vendorId,
+                    apiType,
+                    requestId,
+                    statusCode
+            );
+
             return decryptedResponse;
 
         } catch (Exception e) {
+
+            log.error(
+                    "Bill Avenue API call failed. vendorId={}, apiType={}, requestId={}, statusCode={}, error={}",
+                    vendorId,
+                    apiType,
+                    requestId,
+                    statusCode,
+                    e.getMessage(),
+                    e
+            );
 
             // -----------------------------------------
             // 7. FAILURE vendor log
@@ -209,11 +326,27 @@ public class BillAvenueApiClient {
             case BILLER_FETCH -> billerFetchPath;
             case BILL_PAYMENT -> billPaymentPath;
             case TRANSACTION_STATUS -> transactionStatusPath;
-            default -> throw new IllegalArgumentException(
-                    "Unsupported Bill Avenue API type: "
-                            + apiType
-            );
+
+            default -> {
+                log.error(
+                        "Unsupported Bill Avenue API type. apiType={}, requestId={}",
+                        apiType,
+                        requestId
+                );
+
+                throw new IllegalArgumentException(
+                        "Unsupported Bill Avenue API type: "
+                                + apiType
+                );
+            }
         };
+
+        log.debug(
+                "Building Bill Avenue URL. apiType={}, path={}, requestId={}",
+                apiType,
+                path,
+                requestId
+        );
 
         return UriComponentsBuilder
                 .fromUriString(credentials.baseUrl())
