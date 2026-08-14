@@ -12,6 +12,8 @@ import com.project2.ism.Repository.BillAvenueConfigRepository;
 import com.project2.ism.Repository.PaymentVendorRepository;
 import com.project2.ism.response.CommonResponse;
 import com.project2.ism.util.BillAvenueApiClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,9 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class BillPayConfigService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(BillPayConfigService.class);
 
     private final BillAvenueConfigRepository billAvenueConfigRepository;
     private final PaymentVendorRepository paymentVendorRepository;
@@ -320,40 +325,123 @@ public class BillPayConfigService {
     public Object fetchBill(
             BillerFetchRequestDTO request) throws Exception {
 
-        validateBillFetchRequest(request);
+        String requestId =
+                request != null ? request.getRequestId() : null;
 
-        PaymentVendor vendor =
-                paymentVendorRepository
-                        .findByVendorNameAndStatus(
-                                "Bill Avenue",
-                                true
-                        )
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Active Bill Avenue vendor not found"
-                                )
-                        );
-
-        String requestJson =
-                objectMapper.writeValueAsString(request);
-
-        String decryptedResponse =
-                billAvenueApiClient.call(
-                        vendor.getId(),
-                        BillAvenueApiType.BILLER_FETCH,
-                        request.getRequestId(),
-                        requestJson
-                );
-
-        return objectMapper.readTree(
-                decryptedResponse
+        log.info(
+                "Starting bill fetch process. requestId={}",
+                requestId
         );
+
+        try {
+
+            // 1. Validate request
+            log.debug(
+                    "Validating bill fetch request. requestId={}",
+                    requestId
+            );
+
+            validateBillFetchRequest(request);
+
+            log.debug(
+                    "Bill fetch request validation successful. requestId={}",
+                    requestId
+            );
+
+
+            // 2. Find active vendor
+            log.debug(
+                    "Fetching active Bill Avenue vendor. requestId={}",
+                    requestId
+            );
+
+            PaymentVendor vendor =
+                    paymentVendorRepository
+                            .findByVendorNameAndStatus(
+                                    "Bill Avenue",
+                                    true
+                            )
+                            .orElseThrow(() ->
+                                    new RuntimeException(
+                                            "Active Bill Avenue vendor not found"
+                                    )
+                            );
+
+            log.info(
+                    "Bill Avenue vendor found. vendorId={}, requestId={}",
+                    vendor.getId(),
+                    requestId
+            );
+
+
+            // 3. Convert request to JSON
+            String requestJson =
+                    objectMapper.writeValueAsString(request);
+
+            log.debug(
+                    "Bill fetch request converted to JSON. requestId={}, payloadSize={}",
+                    requestId,
+                    requestJson != null ? requestJson.length() : 0
+            );
+
+
+            // 4. Call Bill Avenue
+            log.info(
+                    "Calling Bill Avenue API. apiType={}, vendorId={}, requestId={}",
+                    BillAvenueApiType.BILLER_FETCH,
+                    vendor.getId(),
+                    requestId
+            );
+
+            String decryptedResponse =
+                    billAvenueApiClient.call(
+                            vendor.getId(),
+                            BillAvenueApiType.BILLER_FETCH,
+                            requestId,
+                            requestJson
+                    );
+
+            log.info(
+                    "Bill Avenue API call completed. vendorId={}, requestId={}, responseSize={}",
+                    vendor.getId(),
+                    requestId,
+                    decryptedResponse != null
+                            ? decryptedResponse.length()
+                            : 0
+            );
+
+
+            // 5. Parse response
+            Object response =
+                    objectMapper.readTree(decryptedResponse);
+
+            log.info(
+                    "Bill fetch response parsed successfully. requestId={}",
+                    requestId
+            );
+
+            return response;
+
+        } catch (Exception e) {
+
+            log.error(
+                    "Bill fetch failed. requestId={}",
+                    requestId,
+                    e
+            );
+
+            throw e;
+        }
     }
 
     private void validateBillFetchRequest(
             BillerFetchRequestDTO request) {
 
+        log.debug("Validating bill fetch request");
+
         if (request == null) {
+            log.warn("Bill fetch validation failed: request is null");
+
             throw new IllegalArgumentException(
                     "Request cannot be null"
             );
@@ -361,6 +449,11 @@ public class BillPayConfigService {
 
         if (request.getBillerId() == null ||
                 request.getBillerId().isBlank()) {
+
+            log.warn(
+                    "Bill fetch validation failed: billerId is missing. requestId={}",
+                    request.getRequestId()
+            );
 
             throw new IllegalArgumentException(
                     "billerId is required"
@@ -371,10 +464,24 @@ public class BillPayConfigService {
                 request.getInputParams().getInput() == null ||
                 request.getInputParams().getInput().isEmpty()) {
 
+            log.warn(
+                    "Bill fetch validation failed: inputParams is missing. " +
+                            "billerId={}, requestId={}",
+                    request.getBillerId(),
+                    request.getRequestId()
+            );
+
             throw new IllegalArgumentException(
                     "inputParams is required"
             );
         }
+
+        log.debug(
+                "Bill fetch request validation successful. " +
+                        "billerId={}, requestId={}",
+                request.getBillerId(),
+                request.getRequestId()
+        );
     }
 }
 
