@@ -3,6 +3,8 @@ package com.project2.ism.util;
 /**
  * @author SHUBHAM KHOPADE
  */
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.project2.ism.DTO.BillAvenueCredentials;
 import com.project2.ism.Enum.BillAvenueApiType;
 import com.project2.ism.Helper.BillAvenueIVGenerator;
@@ -43,17 +45,20 @@ public class BillAvenueApiClient {
     private final PaymentVendorCredentialsService credentialsService;
     private final BillAvenuceProperties properties;
     private final PaymentVendorResponseLogRepository paymentVendorResponseLogRepository;
+    private final ObjectMapper objectMapper;
 
     public BillAvenueApiClient(
             RestTemplate restTemplate,
             PaymentVendorCredentialsService credentialsService,
             BillAvenuceProperties properties,
-            PaymentVendorResponseLogRepository paymentVendorResponseLogRepository) {
+            PaymentVendorResponseLogRepository paymentVendorResponseLogRepository,
+            ObjectMapper objectMapper) {
 
         this.restTemplate = restTemplate;
         this.credentialsService = credentialsService;
         this.properties = properties;
         this.paymentVendorResponseLogRepository = paymentVendorResponseLogRepository;
+        this.objectMapper = objectMapper;
     }
 
     public String call(
@@ -215,39 +220,39 @@ public class BillAvenueApiClient {
                             String.class
                     );
 
-            statusCode =
-                    response.getStatusCode().value();
+            // ... after getting the response
+            encryptedResponse = response.getBody();
+            statusCode = response.getStatusCode().value();
 
-            encryptedResponse =
-                    response.getBody();
+            log.info("Bill Avenue API response received. vendorId={}, apiType={}, requestId={}, statusCode={}, responseSize={}",
+                    vendorId, apiType, requestId, statusCode, encryptedResponse != null ? encryptedResponse.length() : 0);
 
-            log.info(
-                    "Bill Avenue API response received. vendorId={}, apiType={}, requestId={}, statusCode={}, responseSize={}",
-                    vendorId,
-                    apiType,
-                    requestId,
-                    statusCode,
-                    encryptedResponse != null
-                            ? encryptedResponse.length()
-                            : 0
-            );
+            // --- START OF NEW ERROR HANDLING ---
+            // Check if the response is a JSON error (like {"responseCode":"202", ...})
+            if (encryptedResponse != null && encryptedResponse.trim().startsWith("{")) {
+                // It's likely a JSON error response. Don't attempt to decrypt it.
+                log.error("Received JSON error response from Bill Avenue, likely authentication or validation error. Response: {}", encryptedResponse);
 
-            // -----------------------------------------
-            // 5. Decrypt
-            // -----------------------------------------
+                // Parse the JSON to get the error code and message
+                try {
+                    ObjectNode errorJson = (ObjectNode) objectMapper.readTree(encryptedResponse);
+                    String errorCode = errorJson.path("responseCode").asText();
+                    String errorMessage = errorJson.path("errorInfo").path("error").path(0).path("errorMessage").asText();
 
-            log.debug(
-                    "Decrypting Bill Avenue response. vendorId={}, apiType={}, requestId={}",
-                    vendorId,
-                    apiType,
-                    requestId
-            );
+                    // Save the log with the error message
+                    saveLog(vendorId, apiType.name(), requestJson, encryptedRequest, encryptedResponse, statusCode, "ERROR: " + errorMessage);
+                    throw new RuntimeException(String.format("Bill Avenue API error. Code: %s, Message: %s", errorCode, errorMessage));
+                } catch (Exception e) {
+                    // If parsing fails, throw a generic error
+                    throw new RuntimeException("Received JSON error response from Bill Avenue: " + encryptedResponse);
+                }
+            }
+            // --- END OF NEW ERROR HANDLING ---
 
-            decryptedResponse =
-                    BillAvenueCryptoUtil.decrypt(
-                            encryptedResponse,
-                            credentials.encryptDecryptKey()
-                    );
+            // Proceed with decryption only if it's not a JSON error
+            log.debug("Decrypting Bill Avenue response. vendorId={}, apiType={}, requestId={}", vendorId, apiType, requestId);
+            decryptedResponse = BillAvenueCryptoUtil.decrypt(encryptedResponse, credentials.encryptDecryptKey());
+            // ...
 
             log.debug(
                     "Bill Avenue response decrypted successfully. vendorId={}, apiType={}, requestId={}, responseSize={}",
@@ -360,26 +365,7 @@ public class BillAvenueApiClient {
                 .toUriString();
     }
 
-    private String getApiPath(
-            BillAvenueApiType apiType) {
-
-        return switch (apiType) {
-
-            case BILLER_INFO ->
-                    properties.getBillerInfoPath();
-
-            case BILLER_FETCH ->
-                    properties.getBillerFetchPath();
-
-            case BILL_PAYMENT ->
-                    properties.getBillPaymentPath();
-
-            case TRANSACTION_STATUS ->
-                    properties.getTransactionStatusPath();
-        };
-    }
-
-    private void saveLog(
+    public void saveLog(
             Long vendorId,
             String apiName,
             String requestPayload,
