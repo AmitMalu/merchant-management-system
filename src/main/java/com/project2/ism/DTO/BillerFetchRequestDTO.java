@@ -48,16 +48,16 @@ public class BillerFetchRequestDTO {
     }
 
     public static class CustomerInfo {
-        private Long customerMobile;
+        private String customerMobile;
         private String customerEmail;
         private String customerAdhaar;
         private String customerPan;
 
-        public Long getCustomerMobile() {
+        public String getCustomerMobile() {
             return customerMobile;
         }
 
-        public void setCustomerMobile(Long customerMobile) {
+        public void setCustomerMobile(String customerMobile) {
             this.customerMobile = customerMobile;
         }
 
