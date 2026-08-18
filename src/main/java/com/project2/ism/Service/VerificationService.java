@@ -29,7 +29,7 @@ public class VerificationService {
 
     private static final String SUREPASS_VENDOR = "Surepass";
 
-    @Value("${surepass.api.token}")
+    @Value("${surepass.digilocker.token}")
     private String surepassToken;
 
     private final RestTemplate restTemplate;
