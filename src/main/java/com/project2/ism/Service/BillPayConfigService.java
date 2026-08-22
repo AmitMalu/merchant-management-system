@@ -518,7 +518,7 @@ public class BillPayConfigService {
             }
 
             deviceInfo.setIp("192.168.2.73");
-            deviceInfo.setInitChannel("AGT");
+            deviceInfo.setInitChannel("INT");
             deviceInfo.setMac("01-23-45-67-89-ab");
             request.setAgentDeviceInfo(deviceInfo);
 

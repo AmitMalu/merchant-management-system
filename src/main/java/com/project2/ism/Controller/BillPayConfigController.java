@@ -2,8 +2,11 @@ package com.project2.ism.Controller;
 
 import com.project2.ism.DTO.BillPayConfigDTO;
 import com.project2.ism.DTO.BillPayProviderRequestDTO;
+import com.project2.ism.DTO.BillPaymentRequest;
 import com.project2.ism.DTO.BillerFetchRequestDTO;
 import com.project2.ism.DTO.FetchBillerInfoRequest;
+import com.project2.ism.DTO.TransactionStatusRequest;
+import com.project2.ism.Service.BbpsPaymentService;
 import com.project2.ism.Service.BillPayConfigService;
 import com.project2.ism.response.CommonResponse;
 import org.slf4j.Logger;
@@ -26,10 +29,13 @@ public class BillPayConfigController {
             LoggerFactory.getLogger(BillPayConfigController.class);
 
     private final BillPayConfigService billPayConfigService;
+    private final BbpsPaymentService bbpsPaymentService;
 
     public BillPayConfigController(
-            BillPayConfigService billPayConfigService) {
+            BillPayConfigService billPayConfigService,
+            BbpsPaymentService bbpsPaymentService) {
         this.billPayConfigService = billPayConfigService;
+        this.bbpsPaymentService = bbpsPaymentService;
     }
 
     @PostMapping("/services")
@@ -73,6 +79,32 @@ public class BillPayConfigController {
         return CommonResponse.success(
                 response,
                 "Bill fetched successfully"
+        );
+    }
+
+    @PostMapping("/bill-payment")
+    public CommonResponse<Object> billPayment(
+            @RequestBody BillPaymentRequest request) throws Exception {
+
+        log.info(
+                "Bill payment request received. merchantId={}, billerId={}, requestId={}",
+                request != null ? request.getMerchantId() : null,
+                request != null ? request.getBillerId() : null,
+                request != null ? request.getRequestId() : null
+        );
+
+        return bbpsPaymentService.doBillPayment(request);
+    }
+
+    @PostMapping("/transaction-status")
+    public CommonResponse<Object> transactionStatus(
+            @RequestBody TransactionStatusRequest request) throws Exception {
+
+        Object response = bbpsPaymentService.fetchTransactionStatus(request);
+
+        return CommonResponse.success(
+                response,
+                "Transaction status fetched successfully"
         );
     }
 }
