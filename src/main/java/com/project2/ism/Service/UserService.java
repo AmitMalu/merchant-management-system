@@ -17,6 +17,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class UserService {
@@ -243,11 +247,26 @@ public class UserService {
 
             log.info("Sending password reset email to {}", email);
 
-            mailService.sendHtmlEmail(
+            // Unlike other sendHtmlEmail callers, this one is awaited: the
+            // frontend's "reset link sent" message must reflect whether the
+            // email actually went out, not just whether the token was saved.
+            CompletableFuture<Void> emailFuture = mailService.sendHtmlEmail(
                     List.of(email),
                     "UtsabPay - Password Reset Request",
                     htmlMessage
             );
+
+            try {
+                emailFuture.get(15, TimeUnit.SECONDS);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(
+                        "Failed to send password reset email: " + e.getCause().getMessage(), e.getCause());
+            } catch (TimeoutException e) {
+                throw new RuntimeException("Timed out sending password reset email", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while sending password reset email", e);
+            }
 
             log.info("Password reset email request completed for {}", email);
 
