@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class MailService {
@@ -36,9 +37,16 @@ public class MailService {
     /**
      * Send an HTML email directly.
      * This is the core method — all emails go through here.
+     *
+     * Returns a CompletableFuture so callers that need to know the real
+     * outcome (e.g. forgot-password, where the frontend response should
+     * reflect whether the email actually went out) can await it; callers
+     * that want fire-and-forget behavior (e.g. onboarding credential
+     * emails, where a broken mailbox shouldn't block account creation)
+     * can simply ignore the returned future, same as before.
      */
     @Async
-    public void sendHtmlEmail(List<String> to, String subject, String htmlBody) {
+    public CompletableFuture<Void> sendHtmlEmail(List<String> to, String subject, String htmlBody) {
 
         log.info("Preparing email. Recipients: {}, Subject: {}", to, subject);
 
@@ -64,6 +72,8 @@ public class MailService {
 
             log.info("Email sent successfully to {} | Subject: {}", to, subject);
 
+            return CompletableFuture.completedFuture(null);
+
         } catch (Exception e) {
 
             log.error(
@@ -74,7 +84,9 @@ public class MailService {
                     e
             );
 
-            throw new RuntimeException("Failed to send email: " + e.getMessage(), e);
+            CompletableFuture<Void> failed = new CompletableFuture<>();
+            failed.completeExceptionally(new RuntimeException("Failed to send email: " + e.getMessage(), e));
+            return failed;
         }
     }
 
