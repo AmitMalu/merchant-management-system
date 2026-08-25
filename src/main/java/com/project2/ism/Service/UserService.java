@@ -2,7 +2,11 @@ package com.project2.ism.Service;
 
 import com.project2.ism.Controller.UserController;
 import com.project2.ism.Exception.ResourceNotFoundException;
+import com.project2.ism.Model.Users.Franchise;
+import com.project2.ism.Model.Users.Merchant;
 import com.project2.ism.Model.Users.User;
+import com.project2.ism.Repository.FranchiseRepository;
+import com.project2.ism.Repository.MerchantRepository;
 import com.project2.ism.Repository.UserRepository;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
@@ -29,14 +33,19 @@ public class UserService {
 
     public static final String TOKEN = UUID.randomUUID().toString();
     private final UserRepository userRepository;
+    private final MerchantRepository merchantRepository;
+    private final FranchiseRepository franchiseRepository;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
 
     @Value("${security.password.expiry-days:90}")  // Inject here in the service
     private int passwordExpiryDays;
 
-    public UserService(UserRepository userRepository, MailService mailService) {
+    public UserService(UserRepository userRepository, MerchantRepository merchantRepository,
+                        FranchiseRepository franchiseRepository, MailService mailService) {
         this.userRepository = userRepository;
+        this.merchantRepository = merchantRepository;
+        this.franchiseRepository = franchiseRepository;
         this.mailService = mailService;
         this.passwordEncoder = new BCryptPasswordEncoder();
     }
@@ -468,5 +477,58 @@ public class UserService {
 
         // Should never reach here, but just in case
         return ChangePasswordStatus.INVALID_CURRENT_PASSWORD;
+    }
+
+    // Admin-initiated password reset for a franchise or merchant account.
+    // Used when a franchise/merchant can't reset their own password and asks the admin to do it.
+    public enum AdminResetPasswordStatus {
+        SUCCESS,
+        ENTITY_NOT_FOUND,
+        ACCOUNT_NOT_FOUND
+    }
+
+    @Transactional
+    public AdminResetPasswordStatus adminResetPassword(String entityType, Long entityId, String newPassword) {
+
+        log.info("Admin password reset requested. entityType={}, entityId={}", entityType, entityId);
+
+        String email;
+
+        if ("FRANCHISE".equalsIgnoreCase(entityType)) {
+            Franchise franchise = franchiseRepository.findById(entityId).orElse(null);
+            if (franchise == null) {
+                return AdminResetPasswordStatus.ENTITY_NOT_FOUND;
+            }
+            email = franchise.getContactPerson().getEmail();
+
+        } else if ("MERCHANT".equalsIgnoreCase(entityType)) {
+            Merchant merchant = merchantRepository.findById(entityId).orElse(null);
+            if (merchant == null) {
+                return AdminResetPasswordStatus.ENTITY_NOT_FOUND;
+            }
+            email = merchant.getContactPerson().getEmail();
+
+        } else {
+            throw new IllegalArgumentException("entityType must be MERCHANT or FRANCHISE");
+        }
+
+        Optional<User> userOptional = userRepository.findByEmail(email);
+        if (userOptional.isEmpty()) {
+            log.warn("Admin password reset: no login account found. entityType={}, entityId={}, email={}",
+                    entityType, entityId, email);
+            return AdminResetPasswordStatus.ACCOUNT_NOT_FOUND;
+        }
+
+        User user = userOptional.get();
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordLastChangedAt(LocalDateTime.now());
+        user.setPasswordExpiryDate(LocalDateTime.now().plusDays(passwordExpiryDays));
+
+        userRepository.save(user);
+
+        log.info("Admin password reset successful. entityType={}, entityId={}, userId={}",
+                entityType, entityId, user.getId());
+
+        return AdminResetPasswordStatus.SUCCESS;
     }
 }

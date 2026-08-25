@@ -148,6 +148,12 @@ public class MerchantController {
         return merchantService.getUnapprovedMerchants();
     }
 
+    //admin approval jsx uses this — full list (pending + approved) for the review screen
+    @GetMapping("/all-for-approval")
+    public List<Merchant> getAllMerchantsForApproval() {
+        return merchantService.getAllMerchantsForApproval();
+    }
+
 
     //admin approval jsx uses this
     // 2. Approve merchant

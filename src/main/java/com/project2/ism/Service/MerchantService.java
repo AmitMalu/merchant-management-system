@@ -430,6 +430,12 @@ public class MerchantService {
         return merchantRepository.findByIsApprovedFalse();
     }
 
+    // Used by the Merchant Approval screen, which reviews merchants of both
+    // statuses (pending and already-approved) in one filterable list.
+    public List<Merchant> getAllMerchantsForApproval() {
+        return merchantRepository.findAll();
+    }
+
     // 2. Approve a merchant
     @Transactional
     public Merchant approveMerchant(Long id) {
