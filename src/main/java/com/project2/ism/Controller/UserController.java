@@ -1,5 +1,6 @@
 package com.project2.ism.Controller;
 
+import com.project2.ism.DTO.AdminDTO.AdminResetPasswordRequest;
 import com.project2.ism.DTO.AdminDTO.PermissionDTO;
 import com.project2.ism.Exception.ResourceNotFoundException;
 import com.project2.ism.Model.Users.User;
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -260,6 +262,51 @@ public class UserController {
                         .body(Map.of("error", "Password has not expired. Please use normal password change with current password"));
             };
         } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Something went wrong"));
+        }
+    }
+
+    // Admin-initiated password reset for a franchise or merchant account — used when
+    // that customer can't reset their own password and contacts the admin instead.
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PostMapping("/admin/reset-password")
+    public ResponseEntity<?> adminResetPassword(@RequestBody AdminResetPasswordRequest request) {
+
+        if (request.getEntityType() == null || request.getEntityId() == null) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "entityType and entityId are required"));
+        }
+
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 8) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "New password must be at least 8 characters"));
+        }
+
+        try {
+            UserService.AdminResetPasswordStatus status = userService.adminResetPassword(
+                    request.getEntityType(),
+                    request.getEntityId(),
+                    request.getNewPassword()
+            );
+
+            return switch (status) {
+                case SUCCESS -> ResponseEntity.ok(Map.of("message", "Password reset successfully"));
+                case ENTITY_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", request.getEntityType() + " not found"));
+                case ACCOUNT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "No login account exists for this " + request.getEntityType().toLowerCase()));
+            };
+
+        } catch (IllegalArgumentException ex) {
+
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+
+        } catch (Exception ex) {
+
+            log.error("Admin password reset failed. entityType={}, entityId={}",
+                    request.getEntityType(), request.getEntityId(), ex);
+
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Something went wrong"));
         }

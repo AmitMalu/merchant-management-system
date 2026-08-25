@@ -46,6 +46,8 @@ public class SecurityConfig {
                                 "/error"
                         ).permitAll()
 
+                        .requestMatchers("/users/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
+
                         .requestMatchers("/users/**").permitAll()
 
                         .requestMatchers("/actuator/health").permitAll()
