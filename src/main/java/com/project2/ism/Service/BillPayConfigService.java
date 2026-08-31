@@ -54,12 +54,48 @@ public class BillPayConfigService {
         this.credentialsService = credentialsService;
     }
 
+    // Per the Bharat Connect reviewer's brand-guideline feedback, only these
+    // categories may be shown to the user — the biller-info cache (populated
+    // from live Bill Avenue responses) can otherwise pick up extra/unapproved
+    // categories over time, so this list is the source of truth, not the cache.
+    private static final Set<String> APPROVED_BILL_PAY_CATEGORIES = Set.of(
+            "Agent Collection",
+            "Broadband Postpaid",
+            "Cable TV",
+            "Clubs and Associations",
+            "Credit Card",
+            "DTH",
+            "eChallan",
+            "Education Fees",
+            "Electricity",
+            "EV Recharge",
+            "Fastag",
+            "Fleet Card Recharge",
+            "Gas",
+            "Housing Society",
+            "Insurance",
+            "Landline Postpaid",
+            "Loan Repayment",
+            "LPG Gas",
+            "Mobile Postpaid",
+            "Mobile Prepaid",
+            "Municipal Services",
+            "Municipal Taxes",
+            "National Pension System",
+            "NCMC Recharge",
+            "Prepaid Meter",
+            "Rental",
+            "Subscription",
+            "Water"
+    );
+
     @Transactional(readOnly = true)
     public Map<String, Object> getBillAvenueServices(BillPayConfigDTO req) {
 
         List<BillPayServiceDTO> data = billAvenueConfigRepository
                 .findDistinctServicesByVendorName(req.getVendorName())
                 .stream()
+                .filter(APPROVED_BILL_PAY_CATEGORIES::contains)
                 .map(BillPayServiceDTO::new)
                 .toList();
 
