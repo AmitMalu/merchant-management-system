@@ -3,6 +3,8 @@ package com.project2.ism.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project2.ism.DTO.PayoutDTO.*;
+import com.project2.ism.Enum.TransactionEventStatus;
+import com.project2.ism.Enum.TransactionSourceType;
 import com.project2.ism.Model.*;
 import com.project2.ism.Model.Payment.PaymentVendorResponseLog;
 import com.project2.ism.Model.Payout.PayoutTransaction;
@@ -56,6 +58,8 @@ public class PayoutService {
 
     private final PaymentVendorResponseLogRepository paymentVendorResponseLogRepository;
     private final ObjectMapper objectMapper;
+    private final com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService;
+    private final com.project2.ism.Service.Monitoring.AlertService alertService;
 
 
     public PayoutService(PayoutTransactionRepository payoutTxnRepo,
@@ -68,7 +72,9 @@ public class PayoutService {
                          VimoPayClientService vimoPayClient,
                          PaymentChargeService paymentChargeService,
                          PayoutBankRepository payoutBanksRepo, VendorStateRepository vendorStateRepo, VendorBankRepository vendorBankRepo, PaymentVendorResponseLogRepository paymentVendorResponseLogRepository, ObjectMapper objectMapper,
-                         MerchantTransDetRepository merchantTransDetRepo) {
+                         MerchantTransDetRepository merchantTransDetRepo,
+                         com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService,
+                         com.project2.ism.Service.Monitoring.AlertService alertService) {
         this.payoutTxnRepo = payoutTxnRepo;
         this.merchantWalletRepo = merchantWalletRepo;
         this.franchiseWalletRepo = franchiseWalletRepo;
@@ -84,6 +90,8 @@ public class PayoutService {
         this.paymentVendorResponseLogRepository = paymentVendorResponseLogRepository;
         this.objectMapper = objectMapper;
         this.merchantTransDetRepo = merchantTransDetRepo;
+        this.transactionEventService = transactionEventService;
+        this.alertService = alertService;
     }
 
 
@@ -141,11 +149,23 @@ public class PayoutService {
             // 6. Record in ledger (DEBIT entry)
             recordInLedger(payoutTxn, remainingBalance);
             request.setMerchantRefId(payoutTxn.getMerchantRefId());
+
+            // Transaction Monitoring: record initiation so velocity rules can
+            // count attempts even before the vendor responds.
+            transactionEventService.recordEvent(TransactionSourceType.PAYOUT, payoutTxn.getId(),
+                    request.getInitiatorType(), request.getInitiatorId(), totalDeduction,
+                    TransactionEventStatus.PENDING, "paymentMode=" + request.getPaymentMode());
+
             // 7. Send to vendor
             PayoutResult vendorResult = vimoPayClient.submitPayout(vendorId, request, charges);
 
             // 8. Update payout transaction with vendor response
             updatePayoutWithVendorResponse(payoutTxn, vendorResult);
+
+            // Transaction Monitoring: record the outcome
+            transactionEventService.recordEvent(TransactionSourceType.PAYOUT, payoutTxn.getId(),
+                    request.getInitiatorType(), request.getInitiatorId(), totalDeduction,
+                    mapPayoutStatus(vendorResult.getStatus()), "vendorTxnId=" + vendorResult.getTxnId());
 
             log.info("Payout initiated successfully: ref={} vendorTxnId={} status={}",
                     request.getMerchantRefId(), vendorResult.getTxnId(), vendorResult.getStatus());
@@ -352,6 +372,14 @@ public class PayoutService {
 
     // ==================== VALIDATION METHODS ====================
 
+    // Transaction Monitoring: maps the vendor's status vocabulary onto the
+    // monitoring event vocabulary.
+    private TransactionEventStatus mapPayoutStatus(String vendorStatus) {
+        if ("OK".equalsIgnoreCase(vendorStatus)) return TransactionEventStatus.SUCCESS;
+        if ("FAILED".equalsIgnoreCase(vendorStatus)) return TransactionEventStatus.FAILED;
+        return TransactionEventStatus.PENDING;
+    }
+
     private void validateMerchantRef(String merchantRefId) {
         if (payoutTxnRepo.existsByMerchantRefId(merchantRefId)) {
             throw new IllegalArgumentException("Duplicate merchant reference: " + merchantRefId);
@@ -535,6 +563,25 @@ public class PayoutService {
         // "002" or "Pending" keeps status as PENDING
 
         payoutTxnRepo.save(payoutTxn);
+
+        // Transaction Monitoring: record the callback-driven status change
+        // (async path — the payout came back PENDING synchronously earlier
+        // and is only now resolving to SUCCESS/FAILED).
+        transactionEventService.recordEvent(TransactionSourceType.PAYOUT, payoutTxn.getId(),
+                payoutTxn.getInitiatorType(), payoutTxn.getInitiatorId(), payoutTxn.getTotalDeducted(),
+                mapPayoutStatus(payoutTxn.getStatus() == PayoutTransaction.PayoutStatus.SUCCESS ? "OK"
+                        : payoutTxn.getStatus() == PayoutTransaction.PayoutStatus.FAILED ? "FAILED" : "PENDING"),
+                "callback vendorTxnId=" + callback.getTxnId());
+
+        // A late callback that finally resolves a payout means it's no longer
+        // "stuck" — auto-close any open Stuck-Pending alert about it. Only
+        // fires when the status actually became final (not another PENDING).
+        if (payoutTxn.getStatus() == PayoutTransaction.PayoutStatus.SUCCESS
+                || payoutTxn.getStatus() == PayoutTransaction.PayoutStatus.FAILED) {
+            alertService.autoResolveStuckPending(TransactionSourceType.PAYOUT, payoutTxn.getId(),
+                    "Auto-resolved: late vendor callback resolved this payout to "
+                            + payoutTxn.getStatus() + " (vendorTxnId=" + callback.getTxnId() + ")");
+        }
     }
 
     // ==================== LEDGER MANAGEMENT ====================
@@ -670,6 +717,10 @@ public class PayoutService {
         } else {
             refundFranchiseWallet(payoutTxn);
         }
+
+        transactionEventService.recordEvent(TransactionSourceType.PAYOUT_REFUND, payoutTxn.getId(),
+                payoutTxn.getInitiatorType(), payoutTxn.getInitiatorId(), payoutTxn.getTotalDeducted(),
+                TransactionEventStatus.SUCCESS, "refund for failed payout " + payoutTxn.getMerchantRefId());
     }
 
     private void refundMerchantWallet(PayoutTransaction payoutTxn) {

@@ -109,8 +109,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 @Configuration
 @EnableAsync
-@EnableScheduling // required for @Scheduled to fire — Transaction Monitoring's
-                   // sweep job (stuck-pending/velocity checks) needs this.
+@EnableScheduling // required for @Scheduled to fire at all — was missing before
+                   // (also activates the existing, previously-dormant nightly
+                   // cleanup job in LogService as a side effect)
 public class AsyncConfig {
 
     // Critical path: Instant settlements + notifications (time-sensitive)
