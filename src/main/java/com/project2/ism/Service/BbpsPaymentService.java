@@ -7,6 +7,8 @@ import com.project2.ism.DTO.BillAvenueCredentials;
 import com.project2.ism.DTO.BillPaymentRequest;
 import com.project2.ism.DTO.TransactionStatusRequest;
 import com.project2.ism.Enum.BillAvenueApiType;
+import com.project2.ism.Enum.TransactionEventStatus;
+import com.project2.ism.Enum.TransactionSourceType;
 import com.project2.ism.Helper.BillAvenueIVGenerator;
 import com.project2.ism.Model.Bbps.BbpsTransaction;
 import com.project2.ism.Model.Bbps.BillAvenueConfig;
@@ -60,6 +62,7 @@ public class BbpsPaymentService {
     private final MerchantTransDetRepository merchantTransDetRepository;
     private final BbpsTransactionRepository bbpsTransactionRepository;
     private final ObjectMapper objectMapper;
+    private final com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService;
 
     public BbpsPaymentService(PaymentVendorRepository paymentVendorRepository,
                                BillAvenueConfigRepository billAvenueConfigRepository,
@@ -70,7 +73,8 @@ public class BbpsPaymentService {
                                MerchantRepository merchantRepository,
                                MerchantTransDetRepository merchantTransDetRepository,
                                BbpsTransactionRepository bbpsTransactionRepository,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService) {
         this.paymentVendorRepository = paymentVendorRepository;
         this.billAvenueConfigRepository = billAvenueConfigRepository;
         this.billAvenueApiClient = billAvenueApiClient;
@@ -81,6 +85,7 @@ public class BbpsPaymentService {
         this.merchantTransDetRepository = merchantTransDetRepository;
         this.bbpsTransactionRepository = bbpsTransactionRepository;
         this.objectMapper = objectMapper;
+        this.transactionEventService = transactionEventService;
     }
 
     @Transactional
@@ -147,6 +152,11 @@ public class BbpsPaymentService {
         bbpsTxn.setLedgerMerchantTxnId(ledgerEntry.getTransactionId());
         bbpsTransactionRepository.save(bbpsTxn);
 
+        // Transaction Monitoring: record initiation
+        transactionEventService.recordEvent(TransactionSourceType.BBPS, bbpsTxn.getId(),
+                "MERCHANT", merchantId, totalDeduction, TransactionEventStatus.PENDING,
+                "billerId=" + request.getBillerId());
+
         // 7. Call the vendor — everything from here on is caught, never
         // rethrown, so the debit/refund/status writes always commit.
         try {
@@ -167,6 +177,10 @@ public class BbpsPaymentService {
 
                 updateLedgerStatus(ledgerEntry, "SUCCESS", null, bbpsTxn.getTxnRefId());
 
+                transactionEventService.recordEvent(TransactionSourceType.BBPS, bbpsTxn.getId(),
+                        "MERCHANT", merchantId, totalDeduction, TransactionEventStatus.SUCCESS,
+                        "txnRefId=" + bbpsTxn.getTxnRefId());
+
                 log.info("BBPS bill payment SUCCESS | merchantId={} requestId={} txnRefId={}",
                         merchantId, requestId, bbpsTxn.getTxnRefId());
 
@@ -180,6 +194,12 @@ public class BbpsPaymentService {
 
             updateLedgerStatus(ledgerEntry, "FAILED", errorMessage, bbpsTxn.getTxnRefId());
             refundMerchantWallet(merchantId, totalDeduction, "BBPS payment failed - " + errorMessage);
+
+            transactionEventService.recordEvent(TransactionSourceType.BBPS, bbpsTxn.getId(),
+                    "MERCHANT", merchantId, totalDeduction, TransactionEventStatus.FAILED, errorMessage);
+            transactionEventService.recordEvent(TransactionSourceType.BBPS_REFUND, bbpsTxn.getId(),
+                    "MERCHANT", merchantId, totalDeduction, TransactionEventStatus.SUCCESS,
+                    "refund for failed BBPS payment " + requestId);
 
             log.warn("BBPS bill payment FAILED | merchantId={} requestId={} responseCode={} message={}",
                     merchantId, requestId, responseCode, errorMessage);
@@ -197,6 +217,12 @@ public class BbpsPaymentService {
 
             updateLedgerStatus(ledgerEntry, "FAILED", ex.getMessage(), null);
             refundMerchantWallet(merchantId, totalDeduction, "BBPS payment error - " + ex.getMessage());
+
+            transactionEventService.recordEvent(TransactionSourceType.BBPS, bbpsTxn.getId(),
+                    "MERCHANT", merchantId, totalDeduction, TransactionEventStatus.FAILED, ex.getMessage());
+            transactionEventService.recordEvent(TransactionSourceType.BBPS_REFUND, bbpsTxn.getId(),
+                    "MERCHANT", merchantId, totalDeduction, TransactionEventStatus.SUCCESS,
+                    "refund for failed BBPS payment " + requestId);
 
             return CommonResponse.failedResponse(500, "Transaction failed: " + ex.getMessage(), null);
         }

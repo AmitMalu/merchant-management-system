@@ -77,6 +77,9 @@ public class SecurityConfig {
                         .requestMatchers("/products/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
 
+                        .requestMatchers("/monitoring/**")
+                        .hasAnyRole("ADMIN", "SUPER_ADMIN")
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

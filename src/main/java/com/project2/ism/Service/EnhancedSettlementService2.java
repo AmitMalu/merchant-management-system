@@ -41,6 +41,7 @@ public class EnhancedSettlementService2 {
     private final SettlementBatchCandidateRepository candidateRepo;
     private final SettlementAsyncProcessor asyncProcessor;
     private final EntityHistoryRepository entityHistoryRepository;
+    private final com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService;
 
     @Autowired
     public EnhancedSettlementService2(
@@ -56,7 +57,8 @@ public class EnhancedSettlementService2 {
             FranchiseWalletRepository franchiseWalletRepo,
             FranchiseTransDetRepository franchiseTxnRepo,
             SettlementBatchCandidateRepository candidateRepo,
-            SettlementAsyncProcessor asyncProcessor, EntityHistoryRepository entityHistoryRepository
+            SettlementAsyncProcessor asyncProcessor, EntityHistoryRepository entityHistoryRepository,
+            com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService
     ) {
         this.serialRepo = serialRepo;
         this.productRepository = productRepository;
@@ -72,6 +74,7 @@ public class EnhancedSettlementService2 {
         this.candidateRepo = candidateRepo;
         this.asyncProcessor = asyncProcessor;
         this.entityHistoryRepository = entityHistoryRepository;
+        this.transactionEventService = transactionEventService;
     }
 
     /**
@@ -537,7 +540,11 @@ public class EnhancedSettlementService2 {
             mtd.setRemarks("Batch " + batchId + " settlement");
             mtd.setService("Settlement");
             mtd.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
-            merchantTxnRepo.save(mtd);
+            mtd = merchantTxnRepo.save(mtd);
+
+            transactionEventService.recordEvent(com.project2.ism.Enum.TransactionSourceType.SETTLEMENT,
+                    mtd.getTransactionId(), "MERCHANT", merchant.getId(), net,
+                    com.project2.ism.Enum.TransactionEventStatus.SUCCESS, "batchId=" + batchId, vt.getBrandType());
         }
 
         // --- Then update wallet ---
@@ -664,6 +671,10 @@ public class EnhancedSettlementService2 {
             mtd.setService("Settlement");
             mtd.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
             mtd = merchantTxnRepo.save(mtd);
+
+            transactionEventService.recordEvent(com.project2.ism.Enum.TransactionSourceType.SETTLEMENT,
+                    mtd.getTransactionId(), "MERCHANT", merchant.getId(), merchantNet,
+                    com.project2.ism.Enum.TransactionEventStatus.SUCCESS, "batchId=" + batchId, vt.getBrandType());
         }
 
         if (franchiseCommission.compareTo(BigDecimal.ZERO) > 0) {
@@ -685,7 +696,11 @@ public class EnhancedSettlementService2 {
                 ftd.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
                 ftd.setNetAmount(franchiseCommission);
                 ftd.setRemarks("Batch " + batchId + " commission from merchant transaction " + vt.getTransactionReferenceId());
-                franchiseTxnRepo.save(ftd);
+                ftd = franchiseTxnRepo.save(ftd);
+
+                transactionEventService.recordEvent(com.project2.ism.Enum.TransactionSourceType.COMMISSION,
+                        ftd.getTransactionId(), "FRANCHISE", franchise.getId(), franchiseCommission,
+                        com.project2.ism.Enum.TransactionEventStatus.SUCCESS, "batchId=" + batchId, vt.getBrandType());
             }
         }
 

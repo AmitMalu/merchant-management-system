@@ -20,14 +20,16 @@ public class WalletAdjustmentService {
     private final MerchantWalletRepository merchantWalletRepository;
     private final FranchiseTransDetRepository franchiseTransactionRepository;
     private final MerchantTransDetRepository merchantTransactionRepository;
+    private final com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService;
 
-    public WalletAdjustmentService(FranchiseRepository franchiseRepository, MerchantRepository merchantRepository, FranchiseWalletRepository franchiseWalletRepository, MerchantWalletRepository merchantWalletRepository, FranchiseTransDetRepository franchiseTransactionRepository, MerchantTransDetRepository merchantTransactionRepository) {
+    public WalletAdjustmentService(FranchiseRepository franchiseRepository, MerchantRepository merchantRepository, FranchiseWalletRepository franchiseWalletRepository, MerchantWalletRepository merchantWalletRepository, FranchiseTransDetRepository franchiseTransactionRepository, MerchantTransDetRepository merchantTransactionRepository, com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService) {
         this.franchiseRepository = franchiseRepository;
         this.merchantRepository = merchantRepository;
         this.franchiseWalletRepository = franchiseWalletRepository;
         this.merchantWalletRepository = merchantWalletRepository;
         this.franchiseTransactionRepository = franchiseTransactionRepository;
         this.merchantTransactionRepository = merchantTransactionRepository;
+        this.transactionEventService = transactionEventService;
     }
 
     @Transactional
@@ -85,7 +87,11 @@ public class WalletAdjustmentService {
         transaction.setTranStatus("SUCCESS");
         transaction.setService("ADMIN_ADJUSTMENT");
 
-        franchiseTransactionRepository.save(transaction);
+        transaction = franchiseTransactionRepository.save(transaction);
+
+        transactionEventService.recordEvent(com.project2.ism.Enum.TransactionSourceType.WALLET_ADJUSTMENT,
+                transaction.getTransactionId(), "FRANCHISE", franchiseId, amount,
+                com.project2.ism.Enum.TransactionEventStatus.SUCCESS, actionOnBalance + " - " + remark);
 
         BigDecimal txnAmount = actionOnBalance.equalsIgnoreCase("DEBIT")
                 ? amount.negate()
@@ -152,7 +158,11 @@ public class WalletAdjustmentService {
         transaction.setTranStatus("SUCCESS");
         transaction.setService("ADMIN_ADJUSTMENT");
 
-        merchantTransactionRepository.save(transaction);
+        transaction = merchantTransactionRepository.save(transaction);
+
+        transactionEventService.recordEvent(com.project2.ism.Enum.TransactionSourceType.WALLET_ADJUSTMENT,
+                transaction.getTransactionId(), "MERCHANT", merchantId, amount,
+                com.project2.ism.Enum.TransactionEventStatus.SUCCESS, actionOnBalance + " - " + remark);
 
         BigDecimal txnAmount = actionOnBalance.equalsIgnoreCase("DEBIT")
                 ? amount.negate()
