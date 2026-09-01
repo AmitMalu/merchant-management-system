@@ -28,6 +28,7 @@ package com.project2.ism.WebConfig;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
@@ -108,6 +109,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 @Configuration
 @EnableAsync
+@EnableScheduling // required for @Scheduled to fire — Transaction Monitoring's
+                   // sweep job (stuck-pending/velocity checks) needs this.
 public class AsyncConfig {
 
     // Critical path: Instant settlements + notifications (time-sensitive)
