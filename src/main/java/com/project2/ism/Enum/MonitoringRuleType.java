@@ -8,10 +8,15 @@ package com.project2.ism.Enum;
  *                      parameters.stuckMinutes
  * FAILURE_RATE      - more than parameters.maxFailures failed events from the
  *                      same initiator within parameters.windowMinutes
+ * CARD_VELOCITY     - more than parameters.maxCount POS/card transactions on
+ *                      the same card (BIN + last 4 digits) within
+ *                      parameters.windowMinutes, across the vendor_transactions
+ *                      feed — per Risk SOP Rule 1 (card velocity).
  */
 public enum MonitoringRuleType {
     AMOUNT_THRESHOLD,
     VELOCITY,
     STUCK_PENDING,
-    FAILURE_RATE
+    FAILURE_RATE,
+    CARD_VELOCITY
 }

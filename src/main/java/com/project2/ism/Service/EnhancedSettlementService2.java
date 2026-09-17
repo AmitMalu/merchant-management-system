@@ -746,6 +746,16 @@ public class EnhancedSettlementService2 {
 
         try {
 
+            // Risk SOP Rule 1 (card velocity) — held transactions are excluded
+            // from settlement the same way any other invalid candidate is,
+            // until Risk clears the hold after manual review. Every other
+            // transaction in the batch is unaffected.
+            if (Boolean.TRUE.equals(vt.getRiskHold())) {
+                log.warn("[SETTLEMENT] Transaction on risk hold, skipping | txnRef={} | reason={}",
+                        vt.getTransactionReferenceId(), vt.getRiskHoldReason());
+                return SettlementCandidateDTO.notFound(vt, "RISK_HOLD");
+            }
+
             Optional<ProductSerialNumbers> deviceOpt = findDeviceForTransaction(vt);
 
             if (deviceOpt.isEmpty()) {

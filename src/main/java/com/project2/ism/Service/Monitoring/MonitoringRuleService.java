@@ -91,7 +91,17 @@ public class MonitoringRuleService {
         largeBbps.setSeverity(AlertSeverity.MEDIUM);
         monitoringRuleRepository.save(largeBbps);
 
-        log.info("Seeded 6 default monitoring rules");
+        // Risk & Settlement SOP v1.0 (effective 2026-09-16), Rule 1: max 2
+        // transactions per card per day across the merchant/terminal network.
+        MonitoringRule cardVelocity = new MonitoringRule();
+        cardVelocity.setName("Card Velocity");
+        cardVelocity.setDescription("Flags a card (BIN + last 4 digits) used more than 2 times in a day — possible card testing/cloning.");
+        cardVelocity.setRuleType(MonitoringRuleType.CARD_VELOCITY);
+        cardVelocity.setParameters("{\"windowMinutes\": 1440, \"maxCount\": 2}");
+        cardVelocity.setSeverity(AlertSeverity.HIGH);
+        monitoringRuleRepository.save(cardVelocity);
+
+        log.info("Seeded 7 default monitoring rules");
     }
 
     public List<MonitoringRule> listAll() {

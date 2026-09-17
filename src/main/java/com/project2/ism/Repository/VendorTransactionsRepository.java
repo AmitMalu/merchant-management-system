@@ -37,6 +37,15 @@ public interface VendorTransactionsRepository extends JpaRepository<VendorTransa
 
     Optional<VendorTransactions> findByTransactionReferenceId(String vendorTxPrimaryKey);
 
+    // Read-only feed for the CARD_VELOCITY monitoring rule — every POS/card
+    // transaction in the window, regardless of settlement status, since a
+    // card-testing pattern needs to be caught before settlement even runs.
+    List<VendorTransactions> findByDateBetween(LocalDateTime from, LocalDateTime to);
+
+    // Currently held-from-settlement transactions (Risk SOP Rule 1), for the
+    // Risk team's review queue.
+    List<VendorTransactions> findByRiskHoldTrue();
+
     @Query("""
     SELECT MIN(v.date)
     FROM VendorTransactions v

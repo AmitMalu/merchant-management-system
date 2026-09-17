@@ -14,5 +14,8 @@ public enum TransactionSourceType {
     BBPS_REFUND,
     SETTLEMENT,
     COMMISSION,
-    WALLET_ADJUSTMENT
+    WALLET_ADJUSTMENT,
+    // Raw POS/card-present transaction (vendor_transactions), pre-settlement —
+    // used by the CARD_VELOCITY monitoring rule (Risk SOP Rule 1).
+    CARD_TRANSACTION
 }
