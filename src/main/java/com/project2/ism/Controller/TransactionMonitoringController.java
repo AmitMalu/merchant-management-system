@@ -4,6 +4,7 @@ import com.project2.ism.Enum.AlertSeverity;
 import com.project2.ism.Enum.AlertStatus;
 import com.project2.ism.Model.Monitoring.Alert;
 import com.project2.ism.Model.Monitoring.MonitoringRule;
+import com.project2.ism.Model.VendorTransactions;
 import com.project2.ism.Service.Monitoring.AlertService;
 import com.project2.ism.Service.Monitoring.MonitoringDashboardService;
 import com.project2.ism.Service.Monitoring.MonitoringRuleService;
@@ -95,6 +96,23 @@ public class TransactionMonitoringController {
                 .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=transaction-monitoring-alerts.csv")
                 .body(body);
+    }
+
+    // ==================== CARD-VELOCITY HOLDS (Risk SOP Rule 1) ====================
+    // Deliberately separate from the alert acknowledge/resolve endpoints above
+    // — those are generic triage actions shared by every rule type and must
+    // never move money. Releasing a hold is its own explicit action.
+
+    @GetMapping("/held-transactions")
+    public ResponseEntity<List<VendorTransactions>> listHeldTransactions() {
+        return ResponseEntity.ok(alertService.listHeldTransactions());
+    }
+
+    @PutMapping("/held-transactions/{internalId}/release")
+    public ResponseEntity<VendorTransactions> releaseHold(@PathVariable Long internalId,
+                                                            @RequestBody(required = false) Map<String, String> body) {
+        String notes = body != null ? body.get("notes") : null;
+        return ResponseEntity.ok(alertService.releaseHold(internalId, notes));
     }
 
     // ==================== RULES ====================

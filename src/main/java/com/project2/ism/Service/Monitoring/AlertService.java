@@ -4,9 +4,11 @@ import com.project2.ism.Enum.AlertSeverity;
 import com.project2.ism.Enum.AlertStatus;
 import com.project2.ism.Enum.TransactionSourceType;
 import com.project2.ism.Model.Monitoring.Alert;
+import com.project2.ism.Model.VendorTransactions;
 import com.project2.ism.Repository.AlertRepository;
 import com.project2.ism.Repository.FranchiseRepository;
 import com.project2.ism.Repository.MerchantRepository;
+import com.project2.ism.Repository.VendorTransactionsRepository;
 import com.project2.ism.Service.MailService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,7 @@ public class AlertService {
     private final MailService mailService;
     private final MerchantRepository merchantRepository;
     private final FranchiseRepository franchiseRepository;
+    private final VendorTransactionsRepository vendorTransactionsRepository;
 
     // Comma-separated recipient list for CRITICAL/HIGH alert emails. Empty by
     // default so this feature works out of the box without SMTP being
@@ -39,11 +42,13 @@ public class AlertService {
     private String alertRecipientsRaw;
 
     public AlertService(AlertRepository alertRepository, MailService mailService,
-                         MerchantRepository merchantRepository, FranchiseRepository franchiseRepository) {
+                         MerchantRepository merchantRepository, FranchiseRepository franchiseRepository,
+                         VendorTransactionsRepository vendorTransactionsRepository) {
         this.alertRepository = alertRepository;
         this.mailService = mailService;
         this.merchantRepository = merchantRepository;
         this.franchiseRepository = franchiseRepository;
+        this.vendorTransactionsRepository = vendorTransactionsRepository;
     }
 
     public Alert raiseAlert(Long ruleId, String ruleName, Long transactionEventId, TransactionSourceType sourceType,
@@ -171,6 +176,33 @@ public class AlertService {
             alert.setAssignedTo(currentUser());
         }
         return alertRepository.save(alert);
+    }
+
+    // ==================== CARD-VELOCITY HOLDS (Risk SOP Rule 1) ====================
+    // Deliberately separate from acknowledge/resolve/false-positive above —
+    // those are generic alert-triage actions used by every rule type and must
+    // never carry a side effect on real money. Releasing a hold is its own,
+    // explicit action so clearing an unrelated alert can never accidentally
+    // let held settlement money through.
+
+    public List<VendorTransactions> listHeldTransactions() {
+        return vendorTransactionsRepository.findByRiskHoldTrue();
+    }
+
+    public VendorTransactions releaseHold(Long vendorTransactionInternalId, String notes) {
+        VendorTransactions vt = vendorTransactionsRepository.findById(vendorTransactionInternalId)
+                .orElseThrow(() -> new IllegalArgumentException("Vendor transaction not found: " + vendorTransactionInternalId));
+
+        if (!Boolean.TRUE.equals(vt.getRiskHold())) {
+            return vt;
+        }
+
+        log.info("Risk hold released on vendor transaction {} by {}. Reason was: {}. Notes: {}",
+                vt.getTransactionReferenceId(), currentUser(), vt.getRiskHoldReason(), notes);
+
+        vt.setRiskHold(Boolean.FALSE);
+        vt.setRiskHoldReason(null);
+        return vendorTransactionsRepository.save(vt);
     }
 
     public Alert markFalsePositive(Long alertId, String notes) {

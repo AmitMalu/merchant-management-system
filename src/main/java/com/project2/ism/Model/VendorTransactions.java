@@ -201,6 +201,16 @@ public class VendorTransactions {
     @Column(name = "settlement_batch_id")
     private Long settlementBatchId;
 
+    // Risk SOP Rule 1 (card velocity) — set by the CARD_VELOCITY monitoring
+    // rule when this is the 3rd+ transaction on the same card within a day.
+    // Settlement skips held transactions (same "invalid candidate" path used
+    // for e.g. DEVICE_NOT_FOUND) until Risk clears the hold after review.
+    @Column(name = "risk_hold", nullable = false)
+    private Boolean riskHold = Boolean.FALSE;
+
+    @Column(name = "risk_hold_reason", length = 255)
+    private String riskHoldReason;
+
 
 
     //--------------new fields added as per razorpay
@@ -670,6 +680,22 @@ public class VendorTransactions {
 
     public void setSettlementBatchId(Long settlementBatchId) {
         this.settlementBatchId = settlementBatchId;
+    }
+
+    public Boolean getRiskHold() {
+        return riskHold;
+    }
+
+    public void setRiskHold(Boolean riskHold) {
+        this.riskHold = riskHold;
+    }
+
+    public String getRiskHoldReason() {
+        return riskHoldReason;
+    }
+
+    public void setRiskHoldReason(String riskHoldReason) {
+        this.riskHoldReason = riskHoldReason;
     }
 
     public String getOrgCode() {
