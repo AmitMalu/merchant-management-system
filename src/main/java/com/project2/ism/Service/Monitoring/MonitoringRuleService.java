@@ -101,7 +101,27 @@ public class MonitoringRuleService {
         cardVelocity.setSeverity(AlertSeverity.HIGH);
         monitoringRuleRepository.save(cardVelocity);
 
-        log.info("Seeded 7 default monitoring rules");
+        // Risk & Settlement SOP v1.0, Rule 2: max ₹5,00,000/day per terminal.
+        MonitoringRule tidVolumeCap = new MonitoringRule();
+        tidVolumeCap.setName("Terminal Volume Cap");
+        tidVolumeCap.setDescription("Flags a terminal (TID) processing more than ₹5,00,000 in a calendar day — requires EDD/KYC review before release.");
+        tidVolumeCap.setRuleType(MonitoringRuleType.TID_VOLUME_CAP);
+        tidVolumeCap.setParameters("{\"maxDailyAmount\": 500000}");
+        tidVolumeCap.setSeverity(AlertSeverity.HIGH);
+        monitoringRuleRepository.save(tidVolumeCap);
+
+        // Risk & Settlement SOP v1.0, Rule 3: informational only — never
+        // holds anything, just nudges reconciliation to check txn ID/RRN
+        // instead of amount when a merchant has repeated identical amounts.
+        MonitoringRule repeatedAmount = new MonitoringRule();
+        repeatedAmount.setName("Repeated Amount Pattern");
+        repeatedAmount.setDescription("Informational: flags a merchant with 3+ transactions of the exact same amount in a day — reconcile by transaction ID/RRN, not amount.");
+        repeatedAmount.setRuleType(MonitoringRuleType.REPEATED_AMOUNT_PATTERN);
+        repeatedAmount.setParameters("{\"minCount\": 3}");
+        repeatedAmount.setSeverity(AlertSeverity.LOW);
+        monitoringRuleRepository.save(repeatedAmount);
+
+        log.info("Seeded 9 default monitoring rules");
     }
 
     public List<MonitoringRule> listAll() {
