@@ -252,6 +252,31 @@ public class ProductService {
             product.setVendor(vendor);
         }
 
+        if (dto.getCategory() != null) {
+            ProductCategory newCategory = null;
+            if (dto.getCategory().getProductCategoryId() != null) {
+                newCategory = productCategoryRepository.findById(dto.getCategory().getProductCategoryId())
+                        .orElseThrow(() -> new ResourceNotFoundException("ProductCategory", dto.getCategory().getProductCategoryId()));
+            } else if (StringUtils.hasText(dto.getCategory().getProductCategoryName())) {
+                ProductCategory tempCategory = new ProductCategory();
+                tempCategory.setCategoryName(dto.getCategory().getProductCategoryName());
+                newCategory = getOrCreateCategory(tempCategory);
+            }
+
+            // Only touch anything if the category is actually changing —
+            // getOrCreateCategory() above already incremented the resolved
+            // category's productCount (same as on create), so re-applying
+            // that on every save (even unchanged) would inflate the count.
+            if (newCategory != null && !newCategory.getId().equals(product.getProductCategory().getId())) {
+                ProductCategory oldCategory = product.getProductCategory();
+                if (oldCategory.getProductCount() > 0) {
+                    oldCategory.setProductCount(oldCategory.getProductCount() - 1);
+                    productCategoryRepository.save(oldCategory);
+                }
+                product.setProductCategory(newCategory);
+            }
+        }
+
         if (StringUtils.hasText(dto.getModel())) {
             product.setModel(dto.getModel());
         }
