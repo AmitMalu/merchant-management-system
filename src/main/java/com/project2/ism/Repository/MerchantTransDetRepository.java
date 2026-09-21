@@ -91,6 +91,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR mtd.service = :service) " +
             "ORDER BY mtd.transactionDate DESC")
     Page<MerchantTransactionReportDTO> findMerchantTransactionsByFilters(
             @Param("startDate") LocalDateTime startDate,
@@ -98,6 +99,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("merchantId") Long merchantId,
             @Param("status") String status,
             @Param("transactionType") String transactionType,
+            @Param("service") String service,
             Pageable pageable);
 
     @Query("SELECT new com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO(" +
@@ -114,6 +116,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "WHERE mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR mtd.service = :service) " +
             "ORDER BY mtd.updatedDateAndTimeOfTransaction DESC")
     Page<MerchantTransactionReportDTO> findMerchantTransactionsBySettlementDateFilters(
             @Param("startDate") LocalDateTime startDate,
@@ -121,6 +124,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("merchantId") Long merchantId,
             @Param("status") String status,
             @Param("transactionType") String transactionType,
+            @Param("service") String service,
             Pageable pageable);
 
 
@@ -254,6 +258,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "WHERE mtd.transactionDate BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR mtd.service = :service) " +
             "AND (:merchantType IS NULL OR " +
             "     (:merchantType = 'DIRECT' AND mtd.merchant.franchise IS NULL) OR " +
             "     (:merchantType = 'FRANCHISE' AND mtd.merchant.franchise IS NOT NULL)) " +
@@ -263,6 +268,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("endDate") LocalDateTime endDate,
             @Param("merchantId") Long merchantId,
             @Param("transactionType") String transactionType,
+            @Param("service") String service,
             @Param("merchantType") String merchantType);
 
     @Query("SELECT new com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO(" +
@@ -297,6 +303,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             "WHERE mtd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
             "AND (:merchantId IS NULL OR mtd.merchant.id = :merchantId) " +
             "AND (:transactionType IS NULL OR mtd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR mtd.service = :service) " +
             "AND (:merchantType IS NULL OR " +
             "     (:merchantType = 'DIRECT' AND mtd.merchant.franchise IS NULL) OR " +
             "     (:merchantType = 'FRANCHISE' AND mtd.merchant.franchise IS NOT NULL)) " +
@@ -306,6 +313,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("endDate") LocalDateTime endDate,
             @Param("merchantId") Long merchantId,
             @Param("transactionType") String transactionType,
+            @Param("service") String service,
             @Param("merchantType") String merchantType);
 
     @Query("SELECT mtd.transactionType, COUNT(mtd), SUM(mtd.amount) " +

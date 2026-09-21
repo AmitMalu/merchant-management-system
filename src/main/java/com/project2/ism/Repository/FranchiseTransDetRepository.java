@@ -79,6 +79,7 @@ public interface FranchiseTransDetRepository extends JpaRepository<FranchiseTran
             "AND (:franchiseId IS NULL OR ftd.franchise.id = :franchiseId) " +
             //"AND (:status IS NULL OR ftd.tranStatus = :status) " +
             "AND (:transactionType IS NULL OR ftd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR ftd.service = :service) " +
             "ORDER BY ftd.transactionDate DESC")
     Page<FranchiseTransactionDetails> findFranchiseTransactionsByFilters(
             @Param("startDate") LocalDateTime startDate,
@@ -86,6 +87,7 @@ public interface FranchiseTransDetRepository extends JpaRepository<FranchiseTran
             @Param("franchiseId") Long franchiseId,
             @Param("status") String status,
             @Param("transactionType") String transactionType,
+            @Param("service") String service,
             Pageable pageable);
 
     // Settlement date based
@@ -97,6 +99,7 @@ public interface FranchiseTransDetRepository extends JpaRepository<FranchiseTran
             "AND (:franchiseId IS NULL OR ftd.franchise.id = :franchiseId) " +
             //"AND (:status IS NULL OR ftd.tranStatus = :status) " +
             "AND (:transactionType IS NULL OR ftd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR ftd.service = :service) " +
             "ORDER BY ftd.updatedDateAndTimeOfTransaction DESC")
     Page<FranchiseTransactionDetails> findFranchiseTransactionsBySettlementDateFilters(
             @Param("startDate") LocalDateTime startDate,
@@ -104,6 +107,7 @@ public interface FranchiseTransDetRepository extends JpaRepository<FranchiseTran
             @Param("franchiseId") Long franchiseId,
             @Param("status") String status,
             @Param("transactionType") String transactionType,
+            @Param("service") String service,
             Pageable pageable);
 
     // For fetching vendor transactions in batch
@@ -207,22 +211,26 @@ public interface FranchiseTransDetRepository extends JpaRepository<FranchiseTran
             "LEFT JOIN FETCH ftd.franchise f " +
             "WHERE ftd.transactionDate BETWEEN :startDate AND :endDate " +
             "AND (:transactionType IS NULL OR ftd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR ftd.service = :service) " +
             "ORDER BY ftd.transactionDate DESC")
     Stream<FranchiseTransactionDetails> streamAllFranchiseTransactionsByFilters(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
-            @Param("transactionType") String transactionType);
+            @Param("transactionType") String transactionType,
+            @Param("service") String service);
 
     @Query("SELECT ftd FROM FranchiseTransactionDetails ftd " +
             "LEFT JOIN FETCH ftd.merchantTransactionDetail mtd " +
             "LEFT JOIN FETCH ftd.franchise f " +
             "WHERE ftd.updatedDateAndTimeOfTransaction BETWEEN :startDate AND :endDate " +
             "AND (:transactionType IS NULL OR ftd.transactionType = :transactionType) " +
+            "AND (:service IS NULL OR ftd.service = :service) " +
             "ORDER BY ftd.updatedDateAndTimeOfTransaction DESC")
     Stream<FranchiseTransactionDetails> streamAllFranchiseTransactionsBySettlementDateFilters(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
-            @Param("transactionType") String transactionType);
+            @Param("transactionType") String transactionType,
+            @Param("service") String service);
 
     // 3. Performance by merchant (via link to MerchantTransactionDetails)
     @Query("SELECT mtd.merchant.id, mtd.merchant.businessName, COUNT(ftd), SUM(ftd.amount), SUM(ftd.netAmount) " +

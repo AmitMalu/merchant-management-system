@@ -69,6 +69,7 @@ public class TransactionReportController {
             @RequestParam(value = "merchantId") Long merchantId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "transactionType", required = false) String transactionType,
+            @RequestParam(value = "service", required = false) String service,
             @RequestParam(value = "dateFilterType", defaultValue = "TRANSACTION_DATE") String dateFilterType,
             @RequestParam(value = "page", defaultValue = "0") @Min(0) Integer page,
             @RequestParam(value = "size", defaultValue = "50") @Min(1) @Max(1000) Integer size) {
@@ -83,6 +84,7 @@ public class TransactionReportController {
             request.setMerchantId(merchantId);
             request.setTransactionStatus(status);
             request.setTransactionType(transactionType);
+            request.setService(service);
             request.setDateFilterType(dateFilterType);
             request.setPage(page);
             request.setSize(size);
@@ -120,6 +122,7 @@ public class TransactionReportController {
             @RequestParam(value = "franchiseId") Long franchiseId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "transactionType", required = false) String transactionType,
+            @RequestParam(value = "service", required = false) String service,
             @RequestParam(value = "dateFilterType", defaultValue = "TRANSACTION_DATE") String dateFilterType,
             @RequestParam(value = "page", defaultValue = "0") @Min(0) Integer page,
             @RequestParam(value = "size", defaultValue = "50") @Min(1) @Max(1000) Integer size) {
@@ -134,6 +137,7 @@ public class TransactionReportController {
             request.setFranchiseId(franchiseId);
             request.setTransactionStatus(status);
             request.setTransactionType(transactionType);
+            request.setService(service);
             request.setDateFilterType(dateFilterType);
             request.setPage(page);
             request.setSize(size);
@@ -303,6 +307,7 @@ public class TransactionReportController {
             @RequestParam("endDate") String endDate,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "transactionType", required = false) String transactionType,
+            @RequestParam(value = "service", required = false) String service,
             @RequestParam(value = "dateFilterType", defaultValue = "TRANSACTION_DATE") String dateFilterType,
             @RequestParam(value = "merchantType", required = false) String merchantType, // NEW PARAM
             @RequestParam(value = "includeTaxes", defaultValue = "false") Boolean includeTaxes,
@@ -317,6 +322,7 @@ public class TransactionReportController {
             request.setEndDate(LocalDateTime.parse(endDate));
             request.setTransactionStatus(status);
             request.setTransactionType(transactionType);
+            request.setService(service);
             request.setDateFilterType(dateFilterType);
             request.setMerchantType(merchantType); // NEW: DIRECT, FRANCHISE, or null
             request.setMerchantId(merchantId); // null means ALL merchants of selected type
@@ -356,6 +362,7 @@ public class TransactionReportController {
             @RequestParam("endDate") String endDate,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "transactionType", required = false) String transactionType,
+            @RequestParam(value = "service", required = false) String service,
             @RequestParam(value = "dateFilterType", defaultValue = "TRANSACTION_DATE") String dateFilterType,
             @RequestParam(value = "includeTaxes", defaultValue = "false") Boolean includeTaxes) {
 
@@ -368,6 +375,7 @@ public class TransactionReportController {
             request.setEndDate(LocalDateTime.parse(endDate));
             request.setTransactionStatus(status);
             request.setTransactionType(transactionType);
+            request.setService(service);
             request.setDateFilterType(dateFilterType);
             request.setFranchiseId(null); // null means ALL franchises
 
