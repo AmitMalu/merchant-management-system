@@ -40,6 +40,7 @@ public class FranchiseTransactionReportDTO {
     private String franchiseName;
     private String state;
     private String service;
+    private String remarks;
 
     /**
      * Enhanced constructor with explicit transaction type handling
@@ -327,6 +328,14 @@ public class FranchiseTransactionReportDTO {
 
     public void setService(String service) {
         this.service = service;
+    }
+
+    public String getRemarks() {
+        return remarks;
+    }
+
+    public void setRemarks(String remarks) {
+        this.remarks = remarks;
     }
 }
 

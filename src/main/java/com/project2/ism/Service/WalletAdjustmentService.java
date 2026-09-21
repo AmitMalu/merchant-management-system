@@ -34,6 +34,17 @@ public class WalletAdjustmentService {
 
     @Transactional
     public void adjustFranchiseWallet(Long franchiseId, String actionOnBalance, BigDecimal amount, String remark) {
+        adjustFranchiseWallet(franchiseId, actionOnBalance, amount, remark, "ADMIN_ADJUSTMENT");
+    }
+
+    // Overload with an explicit service label, so callers other than the
+    // admin adjustment screen (e.g. franchise-initiated wallet transfers)
+    // record an accurate "service" value on the transaction row instead of
+    // being mislabeled as an admin action. Existing callers are unaffected —
+    // they keep using the 4-arg version above, which still defaults to
+    // "ADMIN_ADJUSTMENT".
+    @Transactional
+    public void adjustFranchiseWallet(Long franchiseId, String actionOnBalance, BigDecimal amount, String remark, String service) {
         Franchise franchise = franchiseRepository.findById(franchiseId)
                 .orElseThrow(() -> new RuntimeException("Franchise not found"));
 
@@ -85,7 +96,7 @@ public class WalletAdjustmentService {
         transaction.setTransactionDate(now);
         transaction.setUpdatedDateAndTimeOfTransaction(now);
         transaction.setTranStatus("SUCCESS");
-        transaction.setService("ADMIN_ADJUSTMENT");
+        transaction.setService(service);
 
         transaction = franchiseTransactionRepository.save(transaction);
 
@@ -105,6 +116,12 @@ public class WalletAdjustmentService {
 
     @Transactional
     public void adjustMerchantWallet(Long merchantId, String actionOnBalance, BigDecimal amount, String remark) {
+        adjustMerchantWallet(merchantId, actionOnBalance, amount, remark, "ADMIN_ADJUSTMENT");
+    }
+
+    // See the adjustFranchiseWallet overload above for why this exists.
+    @Transactional
+    public void adjustMerchantWallet(Long merchantId, String actionOnBalance, BigDecimal amount, String remark, String service) {
         Merchant merchant = merchantRepository.findById(merchantId)
                 .orElseThrow(() -> new RuntimeException("Merchant not found"));
 
@@ -156,7 +173,7 @@ public class WalletAdjustmentService {
         transaction.setTransactionDate(now);
         transaction.setUpdatedDateAndTimeOfTransaction(now);
         transaction.setTranStatus("SUCCESS");
-        transaction.setService("ADMIN_ADJUSTMENT");
+        transaction.setService(service);
 
         transaction = merchantTransactionRepository.save(transaction);
 

@@ -26,6 +26,11 @@ public class TransactionReportDTO {
         private Long franchiseId;
         private String transactionStatus;
         private String transactionType;
+        // Filters on the "service" column (Settlement, PAYOUT, ADMIN_ADJUSTMENT,
+        // FRANCHISE_WALLET_TRANSFER, ...) — distinct from transactionType, which
+        // is CREDIT/DEBIT. Null/blank means no filtering, same as every other
+        // optional filter here.
+        private String service;
         private int page = 0;
         private int size = 50;
         // NEW FIELDS - Add these to existing TransactionReportRequest
@@ -94,6 +99,14 @@ public class TransactionReportDTO {
 
         public void setTransactionType(String transactionType) {
             this.transactionType = transactionType;
+        }
+
+        public String getService() {
+            return service;
+        }
+
+        public void setService(String service) {
+            this.service = service;
         }
 
         public int getPage() {

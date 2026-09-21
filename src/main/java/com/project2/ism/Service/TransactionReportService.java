@@ -130,6 +130,7 @@ public class TransactionReportService {
                                         request.getMerchantId(),
                                         request.getTransactionStatus(),
                                         request.getTransactionType(),
+                                        request.getService(),
                                         pageable
                                 );
 
@@ -154,6 +155,7 @@ public class TransactionReportService {
                                         request.getMerchantId(),
                                         request.getTransactionStatus(),
                                         request.getTransactionType(),
+                                        request.getService(),
                                         pageable
                                 );
             }
@@ -327,6 +329,7 @@ public class TransactionReportService {
                                 request.getFranchiseId(),
                                 request.getTransactionStatus(),
                                 request.getTransactionType(),
+                                request.getService(),
                                 pageable);
             } else {
                 // Default to transaction date
@@ -337,6 +340,7 @@ public class TransactionReportService {
                                 request.getFranchiseId(),
                                 request.getTransactionStatus(),
                                 request.getTransactionType(),
+                                request.getService(),
                                 pageable);
             }
 // After fetching the page
@@ -460,6 +464,7 @@ public class TransactionReportService {
                 ftd.getTranStatus(),
                 ftd.getService()
         );
+        dto.setRemarks(ftd.getRemarks());
         String userRole = getUserRoleFromSecurityContext();
         return applyFranchiseRoleBasedFiltering(dto,userRole);
     }
@@ -1430,6 +1435,7 @@ public class TransactionReportService {
                             request.getEndDate(),
                             request.getMerchantId(),
                             request.getTransactionType(),
+                            request.getService(),
                             merchantType);
         } else {
             return merchantTransactionRepository
@@ -1438,6 +1444,7 @@ public class TransactionReportService {
                             request.getEndDate(),
                             request.getMerchantId(),
                             request.getTransactionType(),
+                            request.getService(),
                             merchantType);
         }
     }
@@ -1510,13 +1517,15 @@ public class TransactionReportService {
                     .streamAllFranchiseTransactionsBySettlementDateFilters(
                             request.getStartDate(),
                             request.getEndDate(),
-                            request.getTransactionType());
+                            request.getTransactionType(),
+                            request.getService());
         } else {
             return franchiseTransactionRepository
                     .streamAllFranchiseTransactionsByFilters(
                             request.getStartDate(),
                             request.getEndDate(),
-                            request.getTransactionType());
+                            request.getTransactionType(),
+                            request.getService());
         }
     }
 

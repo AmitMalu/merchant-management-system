@@ -80,6 +80,9 @@ public class SecurityConfig {
                         .requestMatchers("/monitoring/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
 
+                        .requestMatchers("/franchise-wallet/**")
+                        .hasRole("FRANCHISE")
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
