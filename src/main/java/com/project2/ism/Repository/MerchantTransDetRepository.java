@@ -573,6 +573,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                 WHERE m.transaction_date >= :startDate
                   AND m.transaction_date < :endDate
                   AND m.service IN (:services)
+                  AND (:status IS NULL OR m.tran_status = :status)
                   AND (
                         :merchantId IS NULL
                         OR m.merchant_id = :merchantId
@@ -597,6 +598,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                 WHERE f.transaction_date >= :startDate
                   AND f.transaction_date < :endDate
                   AND f.service IN (:services)
+                  AND (:status IS NULL OR f.tran_status = :status)
                   AND :merchantId IS NULL
             ) t
             ORDER BY t.transactionDate DESC
@@ -610,6 +612,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                 WHERE m.transaction_date >= :startDate
                   AND m.transaction_date < :endDate
                   AND m.service IN (:services)
+                  AND (:status IS NULL OR m.tran_status = :status)
                   AND (
                         :merchantId IS NULL
                         OR m.merchant_id = :merchantId
@@ -622,6 +625,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                 WHERE f.transaction_date >= :startDate
                   AND f.transaction_date < :endDate
                   AND f.service IN (:services)
+                  AND (:status IS NULL OR f.tran_status = :status)
                   AND :merchantId IS NULL
             ) x
             """,
@@ -631,6 +635,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
             @Param("services") List<String> services,
+            @Param("status") String status,
             @Param("merchantId") Long merchantId,
             Pageable pageable
     );

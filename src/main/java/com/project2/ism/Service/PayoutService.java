@@ -845,10 +845,16 @@ public class PayoutService {
             }
         }
 
-        // Service handling
+        // Service handling. "FAILED" isn't a service type (PAYOUT/PAYOUT_REFUND
+        // are) — it's a status filter layered on top, so a failed payout and a
+        // failed refund attempt both show up when it's selected.
         List<String> services;
+        String tranStatus = null;
         if (service == null || "BOTH".equalsIgnoreCase(service)) {
             services = List.of("PAYOUT", "PAYOUT_REFUND");
+        } else if ("FAILED".equalsIgnoreCase(service)) {
+            services = List.of("PAYOUT", "PAYOUT_REFUND");
+            tranStatus = "FAILED";
         } else {
             services = List.of(service);
         }
@@ -861,7 +867,7 @@ public class PayoutService {
 
         // Fetch data
         Page<PayoutTransactionReportDTO> transactions =
-                merchantTransDetRepo.fetchTransactions(from, to, services, merchantId, pageable);
+                merchantTransDetRepo.fetchTransactions(from, to, services, tranStatus, merchantId, pageable);
 
         // Fetch counts
         PayoutServiceCountDTO counts =

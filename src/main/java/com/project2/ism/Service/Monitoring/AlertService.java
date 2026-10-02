@@ -149,10 +149,10 @@ public class AlertService {
         mailService.sendHtmlEmail(recipients, subject, html);
     }
 
-    public Page<Alert> listAlerts(AlertStatus status, AlertSeverity severity,
+    public Page<Alert> listAlerts(AlertStatus status, AlertSeverity severity, TransactionSourceType sourceType,
                                    LocalDateTime startDate, LocalDateTime endDate,
                                    String initiatorNameSearch, Pageable pageable) {
-        return alertRepository.findFiltered(status, severity, startDate, endDate,
+        return alertRepository.findFiltered(status, severity, sourceType, startDate, endDate,
                 toLikePattern(initiatorNameSearch), pageable);
     }
 
@@ -288,10 +288,10 @@ public class AlertService {
      * export. Every filter is optional; omitting all of them exports the full
      * alert history.
      */
-    public String exportAlertsCsv(AlertStatus status, AlertSeverity severity, Long ruleId,
+    public String exportAlertsCsv(AlertStatus status, AlertSeverity severity, Long ruleId, TransactionSourceType sourceType,
                                    LocalDateTime startDate, LocalDateTime endDate, String initiatorNameSearch) {
 
-        List<Alert> alerts = alertRepository.findForExport(status, severity, ruleId, startDate, endDate,
+        List<Alert> alerts = alertRepository.findForExport(status, severity, ruleId, sourceType, startDate, endDate,
                 toLikePattern(initiatorNameSearch));
 
         StringBuilder csv = new StringBuilder();
