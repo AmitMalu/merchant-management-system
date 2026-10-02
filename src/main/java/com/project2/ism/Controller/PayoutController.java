@@ -197,7 +197,7 @@ public class PayoutController {
             LocalDate endDate,
 
             @RequestParam(defaultValue = "BOTH")
-            String service, // PAYOUT | PAYOUT_REFUND | BOTH
+            String service, // PAYOUT | PAYOUT_REFUND | FAILED | BOTH
 
             @RequestParam(required = false)
             Long merchantId,

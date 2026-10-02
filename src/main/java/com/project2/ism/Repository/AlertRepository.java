@@ -26,12 +26,14 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
     @Query("SELECT a FROM Alert a WHERE " +
             "(:status IS NULL OR a.status = :status) AND " +
             "(:severity IS NULL OR a.severity = :severity) AND " +
+            "(:sourceType IS NULL OR a.sourceType = :sourceType) AND " +
             "(:startDate IS NULL OR a.createdAt >= :startDate) AND " +
             "(:endDate IS NULL OR a.createdAt <= :endDate) AND " +
             "(:initiatorName IS NULL OR LOWER(a.initiatorName) LIKE LOWER(:initiatorName)) " +
             "ORDER BY a.createdAt DESC")
     Page<Alert> findFiltered(@Param("status") AlertStatus status,
                               @Param("severity") AlertSeverity severity,
+                              @Param("sourceType") TransactionSourceType sourceType,
                               @Param("startDate") LocalDateTime startDate,
                               @Param("endDate") LocalDateTime endDate,
                               @Param("initiatorName") String initiatorName,
@@ -60,6 +62,7 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
             "(:status IS NULL OR a.status = :status) AND " +
             "(:severity IS NULL OR a.severity = :severity) AND " +
             "(:ruleId IS NULL OR a.ruleId = :ruleId) AND " +
+            "(:sourceType IS NULL OR a.sourceType = :sourceType) AND " +
             "(:startDate IS NULL OR a.createdAt >= :startDate) AND " +
             "(:endDate IS NULL OR a.createdAt <= :endDate) AND " +
             "(:initiatorName IS NULL OR LOWER(a.initiatorName) LIKE LOWER(:initiatorName)) " +
@@ -67,6 +70,7 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
     List<Alert> findForExport(@Param("status") AlertStatus status,
                                @Param("severity") AlertSeverity severity,
                                @Param("ruleId") Long ruleId,
+                               @Param("sourceType") TransactionSourceType sourceType,
                                @Param("startDate") LocalDateTime startDate,
                                @Param("endDate") LocalDateTime endDate,
                                @Param("initiatorName") String initiatorName);

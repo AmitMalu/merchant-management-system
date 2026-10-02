@@ -2,6 +2,7 @@ package com.project2.ism.Controller;
 
 import com.project2.ism.Enum.AlertSeverity;
 import com.project2.ism.Enum.AlertStatus;
+import com.project2.ism.Enum.TransactionSourceType;
 import com.project2.ism.Model.Monitoring.Alert;
 import com.project2.ism.Model.Monitoring.MonitoringRule;
 import com.project2.ism.Model.VendorTransactions;
@@ -53,13 +54,14 @@ public class TransactionMonitoringController {
     public ResponseEntity<Page<Alert>> listAlerts(
             @RequestParam(required = false) AlertStatus status,
             @RequestParam(required = false) AlertSeverity severity,
+            @RequestParam(required = false) TransactionSourceType sourceType,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
             @RequestParam(required = false) String merchant,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        Page<Alert> alerts = alertService.listAlerts(status, severity, startDate, endDate, merchant, PageRequest.of(page, size));
+        Page<Alert> alerts = alertService.listAlerts(status, severity, sourceType, startDate, endDate, merchant, PageRequest.of(page, size));
         return ResponseEntity.ok(alerts);
     }
 
@@ -85,11 +87,12 @@ public class TransactionMonitoringController {
             @RequestParam(required = false) AlertStatus status,
             @RequestParam(required = false) AlertSeverity severity,
             @RequestParam(required = false) Long ruleId,
+            @RequestParam(required = false) TransactionSourceType sourceType,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
             @RequestParam(required = false) String merchant) {
 
-        String csv = alertService.exportAlertsCsv(status, severity, ruleId, startDate, endDate, merchant);
+        String csv = alertService.exportAlertsCsv(status, severity, ruleId, sourceType, startDate, endDate, merchant);
         byte[] body = csv.getBytes(StandardCharsets.UTF_8);
 
         return ResponseEntity.ok()
