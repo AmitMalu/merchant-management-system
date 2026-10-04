@@ -118,6 +118,12 @@ public class PayoutService {
                 request.getAmount());
 
         try {
+            // Bank verification returns holder names with a title prefix
+            // (e.g. "Mr. SUBHENDU  MONDAL"); the vendor fails payouts carrying
+            // it, so clean the name once here — covers the vendor payload and
+            // the stored payout_transactions row alike.
+            request.setBeneficiaryName(sanitizeBeneficiaryName(request.getBeneficiaryName()));
+
             // 1. Validate unique merchant ref
             //validateMerchantRef(request.getMerchantRefId());
 
@@ -427,6 +433,25 @@ public class PayoutService {
     }
 
     // ==================== TRANSACTION MANAGEMENT ====================
+
+    // Leading honorific(s) only, and only when followed by "." or whitespace —
+    // so names that merely start with the same letters (Mrinal, Drishti,
+    // Missy) are untouched. Deliberately limited to unambiguous titles:
+    // "Sri"/"Kumari"/"Master" are also real given names/surnames and are left alone.
+    private static final java.util.regex.Pattern NAME_TITLE_PREFIX = java.util.regex.Pattern.compile(
+            "^\\s*(?:(?:mr|mrs|ms|miss|mx|dr|prof|shri|smt)(?:\\.\\s*|\\s+))+",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    static String sanitizeBeneficiaryName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String cleaned = NAME_TITLE_PREFIX.matcher(name).replaceFirst("")
+                .replaceAll("\\s+", " ")
+                .trim();
+        // Never send an empty name just because the whole value was a title.
+        return cleaned.isEmpty() ? name.trim() : cleaned;
+    }
 
     private PayoutTransaction createPayoutTransaction(PayoutRequest request, BigDecimal charges, Long vendorId) {
         PayoutTransaction txn = new PayoutTransaction();
