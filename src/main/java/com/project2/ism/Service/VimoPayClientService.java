@@ -7,6 +7,7 @@ import com.project2.ism.DTO.PayoutDTO.PayoutCallback;
 import com.project2.ism.DTO.PayoutDTO.PayoutRequest;
 import com.project2.ism.DTO.PayoutDTO.PayoutResult;
 import com.project2.ism.DTO.PayoutDTO.VimoEncryptedRequest;
+import com.project2.ism.Exception.VendorRejectedException;
 import com.project2.ism.Model.Payment.PaymentVendorResponseLog;
 import com.project2.ism.Repository.PaymentVendorResponseLogRepository;
 import org.slf4j.Logger;
@@ -477,6 +478,19 @@ public class VimoPayClientService {
             log.debug("Vendor response parsed | responseCode={}",
                     wrapper.getResponseCode());
 
+            // The vendor can refuse a request outright (inactive partner, bad
+            // field, limit...) with a non-000 code and no encrypted payload.
+            // Previously that crashed on the missing data and hid the vendor's
+            // own reason. Keep the raw reply in the vendor log and raise a
+            // clear rejection carrying the vendor's message.
+            if (!"000".equals(wrapper.getResponseCode())
+                    && (wrapper.getData() == null || wrapper.getData().isBlank())) {
+                log.warn("Vendor rejected request | path={} | responseCode={} | message={}",
+                        path, wrapper.getResponseCode(), wrapper.getMessage());
+                saveLog(vendorId, path, plainJson, requestBody, respBody, status, null);
+                throw new VendorRejectedException(wrapper.getResponseCode(), wrapper.getMessage());
+            }
+
             String decrypted =
                     cryptoService.decryptFromVendor(
                             vendorId,
@@ -490,6 +504,11 @@ public class VimoPayClientService {
         } catch (WebClientResponseException e) {
             log.warn("Vendor POST failed | path={} | status={}",
                     path, e.getRawStatusCode(), e);
+            throw e;
+
+        } catch (VendorRejectedException e) {
+            // Already logged above — rethrow as-is, not wrapped, so callers see
+            // the vendor's message.
             throw e;
 
         } catch (Exception e) {
@@ -937,6 +956,14 @@ public class VimoPayClientService {
             return PayoutResult.failed(
                     request.getMerchantRefId(), "API error: " + e.getMessage()
             );
+
+        } catch (VendorRejectedException e) {
+            // A definite "no" from the vendor (e.g. "Partner is not active for the
+            // service"): a normal FAILED payout — initiatePayout refunds the wallet
+            // for it — carrying the vendor's own reason for the user to see.
+            log.warn("Payout rejected by vendor | merchantRefId={} | code={} | message={}",
+                    request.getMerchantRefId(), e.getResponseCode(), e.getVendorMessage());
+            return PayoutResult.failed(request.getMerchantRefId(), e.getVendorMessage());
 
         } catch (Exception e) {
             log.error("Payout submission exception | merchantRefId={}",

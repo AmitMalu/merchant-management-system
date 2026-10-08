@@ -361,6 +361,27 @@ public class PayoutService {
                     .orElseThrow(() -> new IllegalArgumentException(
                             "Payout transaction not found: " + callback.getMerchantRefId()));
 
+            // A payout that already reached a final state must never be flipped
+            // by a later callback: SUCCESS -> FAILED would refund the wallet for
+            // money the bank already received (a forged or erroneous "failed"
+            // message becomes free money), and FAILED -> SUCCESS would leave the
+            // wallet refunded AND the bank paid. Identical repeats still flow
+            // through as before; only a *conflicting* one is stopped, loudly,
+            // for a human to reconcile against the vendor statement.
+            boolean callbackSaysFailed = "001".equals(callback.getTxnStatusCode())
+                    || "Failed".equalsIgnoreCase(callback.getTxnStatus());
+            boolean callbackSaysSuccess = "000".equals(callback.getTxnStatusCode())
+                    || "Success".equalsIgnoreCase(callback.getTxnStatus());
+            PayoutTransaction.PayoutStatus current = payoutTxn.getStatus();
+            if ((current == PayoutTransaction.PayoutStatus.SUCCESS && callbackSaysFailed)
+                    || (current == PayoutTransaction.PayoutStatus.FAILED && callbackSaysSuccess)) {
+                log.error("RECONCILE: conflicting vendor callback IGNORED. ref={} currentStatus={} " +
+                                "callbackStatus={} callbackCode={} vendorTxnId={} — verify against the vendor statement",
+                        callback.getMerchantRefId(), current, callback.getTxnStatus(),
+                        callback.getTxnStatusCode(), callback.getTxnId());
+                return;
+            }
+
             // Update transaction status
             updatePayoutStatus(payoutTxn, callback);
 
