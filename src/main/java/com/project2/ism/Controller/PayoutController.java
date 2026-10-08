@@ -6,6 +6,7 @@ package com.project2.ism.Controller;
 import com.project2.ism.DTO.PayoutDTO.*;
 import com.project2.ism.Model.Payout.PayoutTransaction;
 import com.project2.ism.Repository.PayoutTransactionRepository;
+import com.project2.ism.Service.CallerIdentityService;
 import com.project2.ism.Service.PayoutService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -38,11 +39,14 @@ public class PayoutController {
 
     private final PayoutService payoutService;
     private final PayoutTransactionRepository payoutTxnRepo;
+    private final CallerIdentityService callerIdentity;
 
     public PayoutController(PayoutService payoutService,
-                            PayoutTransactionRepository payoutTxnRepo) {
+                            PayoutTransactionRepository payoutTxnRepo,
+                            CallerIdentityService callerIdentity) {
         this.payoutService = payoutService;
         this.payoutTxnRepo = payoutTxnRepo;
+        this.callerIdentity = callerIdentity;
     }
 
     /**
@@ -56,6 +60,10 @@ public class PayoutController {
         log.info("Payout initiation request: initiator={} type={} amount={} ref={}",
                 request.getInitiatorId(), request.getInitiatorType(),
                 request.getAmount(), request.getMerchantRefId());
+
+        // The wallet to debit comes from the request body, so confirm the
+        // logged-in user really owns it before any money moves.
+        callerIdentity.requireOwner(request.getInitiatorType(), request.getInitiatorId());
 
         PayoutResult result = payoutService.initiatePayout(request, defaultPayoutVendorId);
 
@@ -85,6 +93,10 @@ public class PayoutController {
         log.info("Simple payout request: bankId={} amount={} mode={} ",
                 request.getPayoutBankId(), request.getAmount(),
                 request.getPaymentMode());
+
+        // The saved bank decides which wallet is debited — it must be the
+        // logged-in user's own bank account.
+        callerIdentity.requireOwnsPayoutBank(request.getPayoutBankId());
 
         PayoutResult result = payoutService.initiateSimplePayout(request, defaultPayoutVendorId);
 
@@ -137,7 +149,10 @@ public class PayoutController {
             @RequestParam String merchantRef) {
 
         return payoutTxnRepo.findByMerchantRefId(merchantRef)
-                .map(ResponseEntity::ok)
+                .map(txn -> {
+                    callerIdentity.requireOwnerOrAdmin(txn.getInitiatorType(), txn.getInitiatorId());
+                    return ResponseEntity.ok(txn);
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -150,6 +165,8 @@ public class PayoutController {
             @RequestParam String initiatorType,
             @RequestParam Long initiatorId,
             @RequestParam(required = false) String status) {
+
+        callerIdentity.requireOwnerOrAdmin(initiatorType, initiatorId);
 
         List<PayoutTransaction> transactions;
 
@@ -175,6 +192,8 @@ public class PayoutController {
             @RequestParam Long initiatorId,
             @RequestParam(required = false) LocalDateTime from,
             @RequestParam(required = false) LocalDateTime to) {
+
+        callerIdentity.requireOwnerOrAdmin(initiatorType, initiatorId);
 
         LocalDateTime startDate = from != null ? from : LocalDateTime.now().minusDays(30);
         LocalDateTime endDate = to != null ? to : LocalDateTime.now();

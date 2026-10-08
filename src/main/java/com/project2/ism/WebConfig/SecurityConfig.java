@@ -56,18 +56,25 @@ public class SecurityConfig {
 
                         .requestMatchers("/mosambee/notification").permitAll()
 
-                        .requestMatchers("/payment-vimo/**").permitAll()
-
-                        .requestMatchers("/vidual-pay/credit-card/**").permitAll()   //remove this later
-
-                        .requestMatchers("/update-transaction/**").permitAll()      //remove this later
-
-                        .requestMatchers("/billpay/config/**").permitAll()      //remove this later
-
+                        // Admin-only: these were open to the internet. /payment-vimo/**
+                        // triggers vendor master-data syncs, /update-transaction/** edits
+                        // transactions, and /tools/encrypt/** encrypts any JSON with the
+                        // payout vendor's key — left public, that last one lets anyone
+                        // forge a valid-looking vendor callback.
                         .requestMatchers(
-                                "/payment-payout/callback",
+                                "/payment-vimo/**",
+                                "/update-transaction/**",
                                 "/tools/encrypt/**"
-                        ).permitAll()
+                        ).hasAnyRole("ADMIN", "SUPER_ADMIN")
+
+                        // /vidual-pay/credit-card/** and /billpay/config/** used to be
+                        // permitAll ("remove this later"); they now fall through to
+                        // anyRequest().authenticated() — a valid login is required.
+
+                        // Called by the payout vendor, not a logged-in user. Authenticity
+                        // rests on the payload decrypting with the vendor key, and
+                        // PayoutService refuses callbacks that conflict with a final status.
+                        .requestMatchers("/payment-payout/callback").permitAll()
 
                         .requestMatchers(
                                 "/vendors/**",

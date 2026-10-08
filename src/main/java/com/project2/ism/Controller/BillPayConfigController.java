@@ -8,6 +8,7 @@ import com.project2.ism.DTO.FetchBillerInfoRequest;
 import com.project2.ism.DTO.TransactionStatusRequest;
 import com.project2.ism.Service.BbpsPaymentService;
 import com.project2.ism.Service.BillPayConfigService;
+import com.project2.ism.Service.CallerIdentityService;
 import com.project2.ism.response.CommonResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,12 +31,15 @@ public class BillPayConfigController {
 
     private final BillPayConfigService billPayConfigService;
     private final BbpsPaymentService bbpsPaymentService;
+    private final CallerIdentityService callerIdentity;
 
     public BillPayConfigController(
             BillPayConfigService billPayConfigService,
-            BbpsPaymentService bbpsPaymentService) {
+            BbpsPaymentService bbpsPaymentService,
+            CallerIdentityService callerIdentity) {
         this.billPayConfigService = billPayConfigService;
         this.bbpsPaymentService = bbpsPaymentService;
+        this.callerIdentity = callerIdentity;
     }
 
     @PostMapping("/services")
@@ -92,6 +96,10 @@ public class BillPayConfigController {
                 request != null ? request.getBillerId() : null,
                 request != null ? request.getRequestId() : null
         );
+
+        // The wallet to debit is the merchantId in the body — it must be the
+        // logged-in merchant's own, not whoever the caller names.
+        callerIdentity.requireOwner("MERCHANT", request != null ? request.getMerchantId() : null);
 
         return bbpsPaymentService.doBillPayment(request);
     }
