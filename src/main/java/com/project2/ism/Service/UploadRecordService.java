@@ -16,6 +16,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -32,9 +34,11 @@ public class UploadRecordService {
     private final ProductRepository productRepository;
     private final ExcelParser excelParser;
     private final CsvParser csvParser;
+    private final UploadNotificationService uploadNotificationService;
 
 
-    public UploadRecordService(TransactionRepository tr, UploadRecordRepository ur, VendorRepository vendorRepository, ProductRepository productRepository, ExcelParser excelParser, CsvParser csvParser) {
+    public UploadRecordService(TransactionRepository tr, UploadRecordRepository ur, VendorRepository vendorRepository, ProductRepository productRepository, ExcelParser excelParser, CsvParser csvParser, UploadNotificationService uploadNotificationService) {
+        this.uploadNotificationService = uploadNotificationService;
         this.transactionRepository = tr;
         this.uploadRecordRepository = ur;
         this.vendorRepository = vendorRepository;
@@ -188,6 +192,8 @@ public class UploadRecordService {
                     originalFileName
             );
 
+            scheduleMerchantNotification(transactions);
+
         } catch (Exception e) {
 
             log.error(
@@ -212,6 +218,37 @@ public class UploadRecordService {
 
         return "File uploaded successfully. Total transactions saved: "
                 + transactions.size();
+    }
+
+    /**
+     * Sends the franchise/merchant notification for the uploaded rows, but only
+     * once the upload has actually been committed — otherwise a rolled-back
+     * upload would have told merchants about transactions that don't exist.
+     * Failures here must never affect the upload itself.
+     */
+    private void scheduleMerchantNotification(List<VendorTransactions> savedTransactions) {
+        try {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        triggerMerchantNotification(savedTransactions);
+                    }
+                });
+            } else {
+                triggerMerchantNotification(savedTransactions);
+            }
+        } catch (Exception e) {
+            log.error("Could not schedule merchant notification for uploaded transactions", e);
+        }
+    }
+
+    private void triggerMerchantNotification(List<VendorTransactions> savedTransactions) {
+        try {
+            uploadNotificationService.notifyUploadedTransactions(savedTransactions);
+        } catch (Exception e) {
+            log.error("Could not start merchant notification for uploaded transactions", e);
+        }
     }
 
     private void validateUploadFile(MultipartFile file) {

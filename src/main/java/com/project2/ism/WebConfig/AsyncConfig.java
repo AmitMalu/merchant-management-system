@@ -166,6 +166,28 @@ public class AsyncConfig {
         return criticalAsyncExecutor();
     }
 
+    // File-upload merchant/franchise notifications. Kept on its own small pool so
+    // a large upload (or a slow merchant callback URL) can never hold up the
+    // critical pool used by payouts and instant settlement.
+    @Bean("uploadNotificationExecutor")
+    public Executor uploadNotificationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("upload-notify-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardOldestPolicy() {
+            @Override
+            public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+                // Never run on the upload request thread; drop and log instead.
+                org.slf4j.LoggerFactory.getLogger(AsyncConfig.class)
+                        .warn("Upload notification batch rejected: queue is full");
+            }
+        });
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("instantSettlementExecutor")
     public Executor instantSettlementExecutor() {
         return criticalAsyncExecutor();
