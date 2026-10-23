@@ -124,6 +124,19 @@ public class PayoutService {
             // the stored payout_transactions row alike.
             request.setBeneficiaryName(sanitizeBeneficiaryName(request.getBeneficiaryName()));
 
+            // Current-account guard: a business-looking holder name means the
+            // account may be a current account (charges / locked funds). Refuse
+            // before any wallet money moves. Also covers beneficiaries that were
+            // saved before this check existed.
+            String blockedKeyword = BeneficiaryNameValidator.findBlockedKeyword(request.getBeneficiaryName());
+            if (blockedKeyword != null) {
+                log.warn("Payout blocked, possible current account | initiator={} type={} beneficiary={} matchedKeyword={}",
+                        request.getInitiatorId(), request.getInitiatorType(),
+                        request.getBeneficiaryName(), blockedKeyword);
+                throw new IllegalArgumentException(
+                        BeneficiaryNameValidator.blockedMessage(request.getBeneficiaryName()));
+            }
+
             // 1. Validate unique merchant ref
             //validateMerchantRef(request.getMerchantRefId());
 

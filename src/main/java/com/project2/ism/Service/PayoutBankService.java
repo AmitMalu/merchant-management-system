@@ -159,6 +159,17 @@ public class PayoutBankService {
             log.info("Bank Name      : {}", bankName);
             log.info("State          : {}", stateName);
 
+            // Current-account guard: the holder name returned by the bank looks
+            // like a business, so refuse to save it as a beneficiary.
+            String blockedKeyword = BeneficiaryNameValidator.findBlockedKeyword(bankHolderName);
+            if (blockedKeyword != null) {
+                log.warn("Beneficiary rejected as possible current account | customerType={} | customerId={} | holderName={} | matchedKeyword={}",
+                        request.getCustomerType(), customerId, bankHolderName, blockedKeyword);
+
+                throw new BankVerificationException(
+                        BeneficiaryNameValidator.blockedMessage(bankHolderName));
+            }
+
             PayoutBanks payoutBank = new PayoutBanks(
                     request.getCustomerType(),
                     customerId,
