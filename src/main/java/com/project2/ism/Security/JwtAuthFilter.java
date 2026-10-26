@@ -236,6 +236,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 path.startsWith("/actuator/health") ||
                 path.equals("/razorpay/notification") ||
                 path.equals("/mosambee/notification") ||
+                path.equals("/paytm/notification") ||
                 request.getMethod().equals("OPTIONS");
     }
 }
