@@ -63,6 +63,25 @@ public class CallerIdentityService {
         }
     }
 
+    /**
+     * The id of the logged-in merchant, taken only from the verified JWT, for
+     * endpoints that must never accept a merchant id from the request. 403 if
+     * the caller is not a merchant.
+     */
+    public Long currentMerchantId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth != null && auth.getName() != null && hasRole(auth, "ROLE_MERCHANT")) {
+            return merchantRepository.findByContactPerson_Email(auth.getName())
+                    .map(m -> m.getId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
+                            "Merchant account not found"));
+        }
+
+        log.warn("Blocked: user={} is not a merchant", auth != null ? auth.getName() : "anonymous");
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only merchants can use this feature");
+    }
+
     /** Same as requireOwner, but admins may also read. For view-only endpoints. */
     public void requireOwnerOrAdmin(String initiatorType, Long initiatorId) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();

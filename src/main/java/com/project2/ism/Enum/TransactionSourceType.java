@@ -17,5 +17,8 @@ public enum TransactionSourceType {
     WALLET_ADJUSTMENT,
     // Raw POS/card-present transaction (vendor_transactions), pre-settlement —
     // used by the CARD_VELOCITY monitoring rule (Risk SOP Rule 1).
-    CARD_TRANSACTION
+    CARD_TRANSACTION,
+    // Credit card bill payment via SuivrePay (merchant wallet -> card bill).
+    CREDIT_CARD,
+    CREDIT_CARD_REFUND
 }

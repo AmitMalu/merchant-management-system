@@ -56,6 +56,9 @@ public class SecurityConfig {
 
                         .requestMatchers("/mosambee/notification").permitAll()
 
+                        // Temporary Paytm notification receiver (log only for now).
+                        .requestMatchers("/paytm/notification").permitAll()
+
                         // Admin-only: these were open to the internet. /payment-vimo/**
                         // triggers vendor master-data syncs, /update-transaction/** edits
                         // transactions, and /tools/encrypt/** encrypts any JSON with the
@@ -89,6 +92,15 @@ public class SecurityConfig {
 
                         .requestMatchers("/franchise-wallet/**")
                         .hasRole("FRANCHISE")
+
+                        // Admin dashboard logs (request / response data): admins only. These used to
+                        // fall through to "any logged-in user".
+                        .requestMatchers("/admin-logs/**")
+                        .hasAnyRole("ADMIN", "SUPER_ADMIN")
+
+                        // Credit card bill payment is a merchant-only feature.
+                        .requestMatchers("/credit-card/**")
+                        .hasRole("MERCHANT")
 
                         .anyRequest().authenticated()
                 )

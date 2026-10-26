@@ -30,6 +30,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/images/**",
                         "/razorpay/notification",
                         "/mosambee/notification",
+                        "/paytm/notification",
                         "/payment-vimo/**",
                         "/vidual-pay/credit-card/**",
                         "/update-transaction/**",    //remove this later
