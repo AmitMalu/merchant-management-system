@@ -65,6 +65,46 @@ public final class CreditCardDtos {
                                   LocalDateTime completedAt) {
     }
 
+    /** One line of the credit card bill payment report. requestId / vendorTxnId are filled for admins only. */
+    public record ReportRow(Long id,
+                            LocalDateTime paidAt,
+                            LocalDateTime completedAt,
+                            String walletTxnId,
+                            String customerType,
+                            Long customerId,
+                            String customerName,
+                            String franchiseName,
+                            String billerName,
+                            String cardLast4,
+                            String cardHolder,
+                            String mobile,
+                            BigDecimal billAmount,
+                            BigDecimal charges,
+                            BigDecimal totalDeducted,
+                            String status,
+                            String message,
+                            String complaintTicketId,
+                            String requestId,
+                            String vendorTxnId) {
+    }
+
+    /** Counts are for every status; the money totals are for SUCCESS payments only. */
+    public record ReportSummary(long totalCount,
+                                long successCount,
+                                long pendingCount,
+                                long failedCount,
+                                BigDecimal successBillAmount,
+                                BigDecimal successCharges,
+                                BigDecimal successTotalDeducted) {
+    }
+
+    public record ReportResponse(java.util.List<ReportRow> rows,
+                                 long totalCount,
+                                 int page,
+                                 int size,
+                                 ReportSummary summary) {
+    }
+
     public record ComplaintStatus(String ticketId,
                                   String type,
                                   String serviceName,

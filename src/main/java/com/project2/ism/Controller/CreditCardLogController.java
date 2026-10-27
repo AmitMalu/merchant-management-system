@@ -35,11 +35,12 @@ public class CreditCardLogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "100") int size,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String customerType,
             @RequestParam(required = false) Long merchantId,
             @RequestParam(required = false) String requestId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
-        return ResponseEntity.ok(search(null, page, size, status, merchantId, requestId, start, end));
+        return ResponseEntity.ok(search(null, page, size, status, customerType, merchantId, requestId, start, end));
     }
 
     /** Same, for one kind of call: FETCH_BILLERS, FETCH_BILL, PAY_BILL, RAISE_COMPLAINT, COMPLAINT_STATUS. */
@@ -49,19 +50,20 @@ public class CreditCardLogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "100") int size,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String customerType,
             @RequestParam(required = false) Long merchantId,
             @RequestParam(required = false) String requestId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
-        return ResponseEntity.ok(search(action, page, size, status, merchantId, requestId, start, end));
+        return ResponseEntity.ok(search(action, page, size, status, customerType, merchantId, requestId, start, end));
     }
 
-    private Page<CreditCardApiLog> search(String action, int page, int size, String status, Long merchantId,
-                                          String requestId, LocalDate start, LocalDate end) {
+    private Page<CreditCardApiLog> search(String action, int page, int size, String status, String customerType,
+                                          Long merchantId, String requestId, LocalDate start, LocalDate end) {
         // The dashboard sends status=all for "no filter".
         String outcome = (status == null || "all".equalsIgnoreCase(status)) ? null : status;
 
-        return logService.search(action, outcome, merchantId, requestId,
+        return logService.search(action, outcome, customerType, merchantId, requestId,
                 start != null ? start.atStartOfDay() : null,
                 end != null ? end.atTime(23, 59, 59) : null,
                 PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE)));

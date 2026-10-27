@@ -98,9 +98,25 @@ public class SecurityConfig {
                         .requestMatchers("/admin-logs/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
 
-                        // Credit card bill payment is a merchant-only feature.
+                        // Credit card bill payment: merchants and franchises (and only if admin has
+                        // switched it on for the account, checked in the service).
                         .requestMatchers("/credit-card/**")
-                        .hasRole("MERCHANT")
+                        .hasAnyRole("MERCHANT", "FRANCHISE")
+
+                        // Credit card bill payment report: every role sees only its own scope
+                        // (decided in CreditCardReportService from the logged-in user).
+                        .requestMatchers("/reports/credit-card/**", "/reports/credit-card")
+                        .hasAnyRole("ADMIN", "SUPER_ADMIN", "MERCHANT", "FRANCHISE")
+
+                        // Payout report for franchises (its own payouts + its merchants').
+                        .requestMatchers("/reports/payout/franchise/**", "/reports/payout/franchise")
+                        .hasRole("FRANCHISE")
+
+                        // The Payout / Credit card switches and the lien amount decide who may move
+                        // money, so only admins may read or change them. These used to fall through
+                        // to "any logged-in user".
+                        .requestMatchers("/merchants/*/settings", "/franchise/*/settings")
+                        .hasAnyRole("ADMIN", "SUPER_ADMIN")
 
                         .anyRequest().authenticated()
                 )

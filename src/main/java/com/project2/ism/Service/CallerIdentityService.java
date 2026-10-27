@@ -82,6 +82,33 @@ public class CallerIdentityService {
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only merchants can use this feature");
     }
 
+    /**
+     * The logged-in merchant or franchise (type + id), taken only from the verified JWT.
+     * 403 for any other role.
+     */
+    public CustomerRef currentCustomer() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth != null && auth.getName() != null) {
+            String email = auth.getName();
+            if (hasRole(auth, "ROLE_MERCHANT")) {
+                return merchantRepository.findByContactPerson_Email(email)
+                        .map(m -> CustomerRef.merchant(m.getId()))
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                "Merchant account not found"));
+            }
+            if (hasRole(auth, "ROLE_FRANCHISE")) {
+                return franchiseRepository.findByContactPerson_Email(email)
+                        .map(f -> CustomerRef.franchise(f.getId()))
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                "Franchise account not found"));
+            }
+        }
+
+        log.warn("Blocked: user={} is not a merchant or franchise", auth != null ? auth.getName() : "anonymous");
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only merchants and franchises can use this feature");
+    }
+
     /** Same as requireOwner, but admins may also read. For view-only endpoints. */
     public void requireOwnerOrAdmin(String initiatorType, Long initiatorId) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();

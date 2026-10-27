@@ -626,6 +626,63 @@ public class PaymentChargeService {
         return finalCharge;
     }
 
+    /**
+     * Charge for a FRANCHISE paying from its own wallet (for example credit card bill payment).
+     * calculateCharges(...) above looks the id up as a MERCHANT, which would pick the wrong account
+     * for a franchise id, so this variant uses the franchise's own configuration:
+     *   1. the charge set for this franchise (scope FRANCHISE)
+     *   2. the global charge (scope GLOBAL)
+     * Same slab / percentage / fixed rules as calculateCharges. Throws IllegalArgumentException
+     * "Invalid payment mode: ..." for an unknown mode, IllegalStateException when nothing is
+     * configured or no slab covers the amount.
+     */
+    public BigDecimal calculateFranchiseCharges(BigDecimal amount, String paymentMode, Long franchiseId) {
+
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Amount must be greater than zero");
+        }
+        if (paymentMode == null || paymentMode.trim().isEmpty()) {
+            throw new IllegalArgumentException("Payment mode is required");
+        }
+        if (franchiseId == null) {
+            throw new IllegalArgumentException("Franchise ID is required for charge calculation");
+        }
+
+        PaymentMode mode = paymentModeRepository
+                .findByCode(paymentMode.trim())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid payment mode: " + paymentMode));
+
+        Franchise franchise = franchiseRepository
+                .findById(franchiseId)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid franchise ID: " + franchiseId));
+
+        PaymentCharges charges = paymentChargeRepository
+                .findActiveFranchiseCharge(mode, RequestedType.FRANCHISE, franchise)
+                .or(() -> paymentChargeRepository.findActiveGlobalCharge(mode, RequestedType.GLOBAL))
+                .orElseThrow(() -> new IllegalStateException(
+                        "No active charge configured for payment mode " + mode.getCode()
+                                + " and franchise ID " + franchiseId
+                                + ". Global configuration is also unavailable."));
+
+        PaymentChargeSlab slab = charges.getSlabs().stream()
+                .filter(s -> amount.compareTo(s.getMinAmount()) >= 0 && amount.compareTo(s.getMaxAmount()) <= 0)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Amount " + amount + " does not fall in any configured slab for payment mode "
+                                + paymentMode + " and charge scope " + charges.getChargeScope()));
+
+        BigDecimal charge = slab.getChargeType() == ChargeType.PERCENTAGE
+                ? amount.multiply(slab.getChargeValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
+                : slab.getChargeValue();
+
+        BigDecimal finalCharge = charge.setScale(2, RoundingMode.HALF_UP);
+
+        log.info("Franchise charge calculated | franchiseId={} | paymentMode={} | amount={} | scope={} | chargeConfigId={} | slabId={} | charge={}",
+                franchiseId, mode.getCode(), amount, charges.getChargeScope(), charges.getId(), slab.getId(), finalCharge);
+
+        return finalCharge;
+    }
+
     //=================== Add configuration resolver ====================
 
     private PaymentCharges resolveApplicableChargeConfiguration(

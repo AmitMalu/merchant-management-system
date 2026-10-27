@@ -32,6 +32,12 @@ public class CreditCardBillTransaction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** MERCHANT or FRANCHISE. Rows from before franchises could pay get MERCHANT from the column default. */
+    @Column(name = "customer_type", nullable = false, length = 20,
+            columnDefinition = "varchar(20) not null default 'MERCHANT'")
+    private String customerType = "MERCHANT";
+
+    /** Id of the merchant or franchise (see customerType). The column keeps its original name. */
     @Column(name = "merchant_id", nullable = false)
     private Long merchantId;
 
@@ -121,6 +127,9 @@ public class CreditCardBillTransaction {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String customerType) { this.customerType = customerType; }
 
     public Long getMerchantId() { return merchantId; }
     public void setMerchantId(Long merchantId) { this.merchantId = merchantId; }

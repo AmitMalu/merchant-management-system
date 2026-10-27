@@ -8,10 +8,16 @@ import com.project2.ism.Exception.CreditCardBillException;
 import com.project2.ism.Model.CreditCard.CreditCardApiLog;
 import com.project2.ism.Model.CreditCard.CreditCardBillTransaction;
 import com.project2.ism.Model.CreditCard.CreditCardBillTransaction.Status;
+import com.project2.ism.Model.FranchiseTransactionDetails;
+import com.project2.ism.Model.FranchiseWallet;
 import com.project2.ism.Model.MerchantTransactionDetails;
 import com.project2.ism.Model.MerchantWallet;
+import com.project2.ism.Model.Users.Franchise;
 import com.project2.ism.Model.Users.Merchant;
 import com.project2.ism.Repository.CreditCardBillTransactionRepository;
+import com.project2.ism.Repository.FranchiseRepository;
+import com.project2.ism.Repository.FranchiseTransDetRepository;
+import com.project2.ism.Repository.FranchiseWalletRepository;
 import com.project2.ism.Repository.MerchantRepository;
 import com.project2.ism.Repository.MerchantTransDetRepository;
 import com.project2.ism.Repository.MerchantWalletRepository;
@@ -38,9 +44,12 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Credit card bill payment through SuivrePay.
+ * Credit card bill payment through SuivrePay, for merchants and franchises.
  *
  * Flow: list billers -> fetch bill (stored here as FETCHED) -> pay.
+ *
+ * Who may use it: the account's "credit card bill payment" switch (set by admin) must be on,
+ * otherwise billers / fetch bill / pay are refused, even if the menu is visible.
  *
  * Paying is done in three separate steps on purpose:
  *   1. (transaction)  lock the bill row + wallet, deduct, write ledger, row = PENDING
@@ -51,8 +60,12 @@ import java.util.regex.Pattern;
  * wait for the vendor.
  *
  * "Unknown" (timeout, 5xx, unreadable answer) is never auto-refunded: the bill
- * may really have been paid, and refunding it would pay the merchant twice.
- * Those stay PENDING for the merchant to raise a complaint and for admin review.
+ * may really have been paid, and refunding it would pay the customer twice.
+ * Those stay PENDING for the customer to raise a complaint and for admin review.
+ *
+ * A merchant pays from the merchant wallet / merchant ledger, a franchise from the franchise
+ * wallet / franchise ledger. Merchant and franchise ids overlap, so everything is keyed by
+ * (type, id) - see CustomerRef.
  */
 @Service
 public class CreditCardBillService {
@@ -62,7 +75,6 @@ public class CreditCardBillService {
     private static final String PARAM_CARD_LAST4 = "Last 4 digits of Primary Credit Card Number";
     private static final String PARAM_MOBILE = "Registered Mobile Number";
 
-    private static final String PAYMENT_MODE_CODE = "CREDIT_CARD";
     private static final BigDecimal PAN_MANDATORY_FROM = new BigDecimal("50000");
     private static final long BILL_VALID_MINUTES = 30;
 
@@ -107,6 +119,17 @@ public class CreditCardBillService {
     @Value("${suivrepay.fetch-reuse-seconds:60}")
     private long fetchReuseSeconds;
 
+    // Our service charge comes from Payment Charges (admin screen). The charge is set on a payment
+    // MODE; this is the list of mode codes that mean "credit card bill payment". The first code that
+    // exists is used. Add the code here (comma separated) if the mode was created with another name.
+    @Value("${suivrepay.charge-mode-codes:CCBP,CREDIT_CARD,CREDIT_CARD_BILL,CREDIT_CARD_BILL_PAYMENT,CC_BILL,CCBILL,CREDIT CARD,CREDITCARD}")
+    private String chargeModeCodes;
+
+    // true (default): if no charge is configured, the payment is refused instead of silently
+    // charging nothing. false: fall back to a zero charge.
+    @Value("${suivrepay.charge-required:true}")
+    private boolean chargeRequired;
+
     private final SuivrePayClient client;
     private final CreditCardBillTransactionRepository repository;
     private final MerchantWalletRepository merchantWalletRepository;
@@ -115,6 +138,10 @@ public class CreditCardBillService {
     private final PaymentChargeService paymentChargeService;
     private final TransactionEventService transactionEventService;
     private final TransactionTemplate tx;
+    private final FranchiseWalletRepository franchiseWalletRepository;
+    private final FranchiseRepository franchiseRepository;
+    private final FranchiseTransDetRepository franchiseTransDetRepository;
+    private final FeatureAccessService featureAccess;
 
     public CreditCardBillService(SuivrePayClient client,
                                  CreditCardBillTransactionRepository repository,
@@ -123,7 +150,11 @@ public class CreditCardBillService {
                                  MerchantTransDetRepository merchantTransDetRepository,
                                  PaymentChargeService paymentChargeService,
                                  TransactionEventService transactionEventService,
-                                 PlatformTransactionManager transactionManager) {
+                                 PlatformTransactionManager transactionManager,
+                                 FranchiseWalletRepository franchiseWalletRepository,
+                                 FranchiseRepository franchiseRepository,
+                                 FranchiseTransDetRepository franchiseTransDetRepository,
+                                 FeatureAccessService featureAccess) {
         this.client = client;
         this.repository = repository;
         this.merchantWalletRepository = merchantWalletRepository;
@@ -132,16 +163,22 @@ public class CreditCardBillService {
         this.paymentChargeService = paymentChargeService;
         this.transactionEventService = transactionEventService;
         this.tx = new TransactionTemplate(transactionManager);
+        this.franchiseWalletRepository = franchiseWalletRepository;
+        this.franchiseRepository = franchiseRepository;
+        this.franchiseTransDetRepository = franchiseTransDetRepository;
+        this.featureAccess = featureAccess;
     }
 
     // =====================================================================
     // 1. Billers
     // =====================================================================
 
-    public List<Biller> getBillers(Long merchantId) {
-        log.info("Credit card billers requested | merchantId={}", merchantId);
+    public List<Biller> getBillers(CustomerRef who) {
+        featureAccess.requireCreditCardEnabled(who);
+
+        log.info("Credit card billers requested | {}", who.label());
         VendorResponse response = client.post(billersPath, null,
-                new CallContext(CreditCardApiLog.FETCH_BILLERS, merchantId, null, null, null, null));
+                CallContext.of(CreditCardApiLog.FETCH_BILLERS, who, null, null, null, null));
 
         if (!isSuccess(response)) {
             throw vendorProblem(response, "billers");
@@ -165,7 +202,8 @@ public class CreditCardBillService {
     // 2. Fetch bill
     // =====================================================================
 
-    public FetchedBill fetchBill(Long merchantId, FetchBillRequest request) {
+    public FetchedBill fetchBill(CustomerRef who, FetchBillRequest request) {
+        featureAccess.requireCreditCardEnabled(who);
 
         if (request == null || isBlank(request.billerId())) {
             throw new IllegalArgumentException("Please select a biller.");
@@ -183,21 +221,20 @@ public class CreditCardBillService {
             throw new IllegalArgumentException("Enter the 10-digit registered mobile number.");
         }
 
-        log.info("Credit card fetch-bill started | merchantId={} | billerId={} | card=****{} | mobile={}",
-                merchantId, billerId, last4, maskMobile(mobile));
+        log.info("Credit card fetch-bill started | {} | billerId={} | card=****{} | mobile={}",
+                who.label(), billerId, last4, maskMobile(mobile));
 
         // Same card fetched again within a minute (double click, "let me check once more"):
         // show the bill we already have instead of asking the biller again. Billers throttle
         // repeated lookups ("Too many request for that Biller"), so this keeps them calm.
-        java.util.Optional<CreditCardBillTransaction> recent = repository
-                .findFirstByMerchantIdAndBillerIdAndCardLast4AndCustomerMobileAndStatusAndFetchedAtAfterOrderByFetchedAtDesc(
-                        merchantId, billerId, last4, mobile, Status.FETCHED,
-                        LocalDateTime.now().minusSeconds(fetchReuseSeconds));
-        if (recent.isPresent()) {
-            CreditCardBillTransaction existing = recent.get();
-            log.info("Credit card fetch-bill reused a bill fetched moments ago | merchantId={} | requestId={}",
-                    merchantId, existing.getRequestId());
-            return toFetchedBill(existing, calculateChargesSafely(existing.getBillAmount(), merchantId));
+        List<CreditCardBillTransaction> recent = repository.findRecentFetched(
+                who.type(), who.id(), billerId, last4, mobile, Status.FETCHED,
+                LocalDateTime.now().minusSeconds(fetchReuseSeconds), PageRequest.of(0, 1));
+        if (!recent.isEmpty()) {
+            CreditCardBillTransaction existing = recent.get(0);
+            log.info("Credit card fetch-bill reused a bill fetched moments ago | {} | requestId={}",
+                    who.label(), existing.getRequestId());
+            return toFetchedBill(existing, calculateCharges(existing.getBillAmount(), who));
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -209,7 +246,7 @@ public class CreditCardBillService {
                 Map.of("name", PARAM_MOBILE, "value", mobile)));
 
         VendorResponse response = client.post(fetchBillPath, body,
-                new CallContext(CreditCardApiLog.FETCH_BILL, merchantId, billerId, last4, null, null));
+                CallContext.of(CreditCardApiLog.FETCH_BILL, who, billerId, last4, null, null));
 
         if (!isSuccess(response)) {
             throw vendorProblem(response, "fetch-bill");
@@ -220,7 +257,7 @@ public class CreditCardBillService {
         BigDecimal amount = parseAmount(data.path("amount"));
 
         if (requestId.isBlank() || amount == null) {
-            log.error("SuivrePay fetch-bill returned an unusable response | merchantId={}", merchantId);
+            log.error("SuivrePay fetch-bill returned an unusable response | {}", who.label());
             throw new CreditCardBillException(HttpStatus.BAD_GATEWAY,
                     "Could not read the bill details. Please try again.");
         }
@@ -230,7 +267,8 @@ public class CreditCardBillService {
         }
 
         CreditCardBillTransaction row = new CreditCardBillTransaction();
-        row.setMerchantId(merchantId);
+        row.setCustomerType(who.type());
+        row.setMerchantId(who.id());
         row.setRequestId(requestId);
         row.setBillerId(billerId);
         row.setBillerName(data.path("biller_name").asText(null));
@@ -247,15 +285,15 @@ public class CreditCardBillService {
         try {
             repository.save(row);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            log.warn("Duplicate request_id on fetch-bill | merchantId={}", merchantId);
+            log.warn("Duplicate request_id on fetch-bill | {}", who.label());
             throw new CreditCardBillException(HttpStatus.CONFLICT,
                     "This bill was already fetched. Please fetch it again.");
         }
 
-        BigDecimal charges = calculateChargesSafely(amount, merchantId);
+        BigDecimal charges = calculateCharges(amount, who);
 
-        log.info("Credit card fetch-bill done | merchantId={} | requestId={} | billerId={} | amount={} | charges={}",
-                merchantId, requestId, billerId, amount, charges);
+        log.info("Credit card fetch-bill done | {} | requestId={} | billerId={} | amount={} | charges={}",
+                who.label(), requestId, billerId, amount, charges);
 
         return toFetchedBill(row, charges);
     }
@@ -287,7 +325,9 @@ public class CreditCardBillService {
 
     private enum Outcome {SUCCESS, FAILED, UNKNOWN}
 
-    public PaymentResult payBill(Long merchantId, PayBillRequest request) {
+    public PaymentResult payBill(CustomerRef who, PayBillRequest request) {
+        // Before anything else: the switch must be on. Nothing is debited if it is off.
+        featureAccess.requireCreditCardEnabled(who);
 
         if (request == null || isBlank(request.requestId())) {
             throw new IllegalArgumentException("Please fetch the bill first.");
@@ -302,7 +342,7 @@ public class CreditCardBillService {
             throw new IllegalArgumentException("Enter a valid PAN (for example ABCDE1234F).");
         }
 
-        log.info("Credit card pay requested | merchantId={} | requestId={} | panGiven={}", merchantId, requestId, pan != null);
+        log.info("Credit card pay requested | {} | requestId={} | panGiven={}", who.label(), requestId, pan != null);
 
         // Fail before any money moves if SuivrePay is not configured.
         client.ensureConfigured();
@@ -310,7 +350,7 @@ public class CreditCardBillService {
 
         // ---- Step 1: debit + mark PENDING (committed before we call the vendor) ----
         final String panFinal = pan;
-        Prepared prepared = tx.execute(status -> prepareDebit(merchantId, requestId, panFinal));
+        Prepared prepared = tx.execute(status -> prepareDebit(who, requestId, panFinal));
 
         // ---- Step 2: call SuivrePay, outside any transaction ----
         VendorResponse response = null;
@@ -331,21 +371,21 @@ public class CreditCardBillService {
                         Map.of("name", PARAM_MOBILE, "value", prepared.mobile())));
             }
             response = client.post(payBillPath, body,
-                    new CallContext(CreditCardApiLog.PAY_BILL, merchantId, prepared.billerId(), prepared.cardLast4(),
+                    CallContext.of(CreditCardApiLog.PAY_BILL, who, prepared.billerId(), prepared.cardLast4(),
                             prepared.requestId(), prepared.amount()));
             outcome = classify(response);
-            log.info("Credit card pay: SuivrePay answered | merchantId={} | requestId={} | httpStatus={} | vendorStatus={} | vendorMessage={} | decision={}",
-                    merchantId, requestId, response.httpStatus(),
+            log.info("Credit card pay: SuivrePay answered | {} | requestId={} | httpStatus={} | vendorStatus={} | vendorMessage={} | decision={}",
+                    who.label(), requestId, response.httpStatus(),
                     response.body() != null ? response.body().path("status").asText("") : "(not JSON)",
                     response.body() != null ? response.body().path("message").asText("") : "",
                     outcome);
         } catch (SuivrePayClient.VendorUnreachableException e) {
-            log.error("Credit card pay: no answer from SuivrePay, outcome unknown | merchantId={} | requestId={}",
-                    merchantId, requestId);
+            log.error("Credit card pay: no answer from SuivrePay, outcome unknown | {} | requestId={}",
+                    who.label(), requestId);
             outcome = Outcome.UNKNOWN;
         } catch (Exception e) {
-            log.error("Credit card pay: unexpected error after debit, outcome unknown | merchantId={} | requestId={} | error={}",
-                    merchantId, requestId, e.getMessage(), e);
+            log.error("Credit card pay: unexpected error after debit, outcome unknown | {} | requestId={} | error={}",
+                    who.label(), requestId, e.getMessage(), e);
             outcome = Outcome.UNKNOWN;
         }
 
@@ -353,12 +393,12 @@ public class CreditCardBillService {
         final VendorResponse vendorResponse = response;
         final Outcome finalOutcome = outcome;
         try {
-            return tx.execute(status -> finalizePayment(merchantId, prepared, vendorResponse, finalOutcome));
+            return tx.execute(status -> finalizePayment(who, prepared, vendorResponse, finalOutcome));
         } catch (Exception e) {
             // The debit is already committed and the row is PENDING, so nothing is lost;
             // log everything needed to reconcile by hand.
-            log.error("CREDIT CARD PAYMENT NEEDS MANUAL CHECK | merchantId={} | requestId={} | outcome={} | httpStatus={} | raw={} | error={}",
-                    merchantId, requestId, finalOutcome,
+            log.error("CREDIT CARD PAYMENT NEEDS MANUAL CHECK | {} | requestId={} | outcome={} | httpStatus={} | raw={} | error={}",
+                    who.label(), requestId, finalOutcome,
                     vendorResponse != null ? vendorResponse.httpStatus() : null,
                     vendorResponse != null ? vendorResponse.raw() : null,
                     e.getMessage(), e);
@@ -367,9 +407,9 @@ public class CreditCardBillService {
         }
     }
 
-    private Prepared prepareDebit(Long merchantId, String requestId, String pan) {
+    private Prepared prepareDebit(CustomerRef who, String requestId, String pan) {
 
-        CreditCardBillTransaction t = repository.findByRequestIdAndMerchantIdForUpdate(requestId, merchantId)
+        CreditCardBillTransaction t = repository.findByRequestIdForUpdate(requestId, who.type(), who.id())
                 .orElseThrow(() -> new IllegalArgumentException("Bill not found. Please fetch the bill again."));
 
         if (t.getStatus() != Status.FETCHED) {
@@ -391,16 +431,15 @@ public class CreditCardBillService {
         }
 
         // Same payment twice (double click, or fetching again and paying again): take the
-        // wallet lock FIRST so two simultaneous requests for this merchant are handled one
+        // wallet lock FIRST so two simultaneous requests for this account are handled one
         // after the other, then refuse if an identical payment was made a moment ago.
-        merchantWalletRepository.findByMerchantIdForUpdate(merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
-        rejectIfRecentDuplicate(merchantId, t, amount);
+        lockWallet(who);
+        rejectIfRecentDuplicate(who, t, amount);
 
-        BigDecimal charges = calculateChargesSafely(amount, merchantId);
+        BigDecimal charges = calculateCharges(amount, who);
         BigDecimal total = amount.add(charges);
 
-        BigDecimal balanceAfterDebit = deductMerchantBalance(merchantId, total);
+        BigDecimal balanceAfterDebit = deductBalance(who, total);
 
         t.setCharges(charges);
         t.setTotalDeducted(total);
@@ -409,15 +448,15 @@ public class CreditCardBillService {
         t.setPaidAt(LocalDateTime.now());
         repository.save(t);
 
-        MerchantTransactionDetails ledger = recordDebitLedger(merchantId, total, balanceAfterDebit, t);
-        t.setLedgerMerchantTxnId(ledger.getTransactionId());
+        Long ledgerId = recordDebitLedger(who, total, balanceAfterDebit, t);
+        t.setLedgerMerchantTxnId(ledgerId);
         repository.save(t);
 
-        safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), merchantId, total,
+        safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), who, total,
                 TransactionEventStatus.PENDING, "billerId=" + t.getBillerId());
 
-        log.info("Credit card payment started | merchantId={} | requestId={} | amount={} | charges={}",
-                merchantId, requestId, amount, charges);
+        log.info("Credit card payment started | {} | requestId={} | amount={} | charges={}",
+                who.label(), requestId, amount, charges);
 
         return new Prepared(t.getId(), requestId, amount, pan, charges, total,
                 t.getCardLast4(), t.getCustomerMobile(), t.getBillerId());
@@ -428,11 +467,11 @@ public class CreditCardBillService {
      * again within the duplicate window. Failed (refunded) payments do not count, so a
      * genuine retry after a failure is never blocked.
      */
-    private void rejectIfRecentDuplicate(Long merchantId, CreditCardBillTransaction t, BigDecimal amount) {
+    private void rejectIfRecentDuplicate(CustomerRef who, CreditCardBillTransaction t, BigDecimal amount) {
         LocalDateTime now = LocalDateTime.now();
 
         List<CreditCardBillTransaction> recent = repository.findRecentSimilarPayments(
-                merchantId, t.getBillerId(), t.getCardLast4(), t.getCustomerMobile(), amount,
+                who.type(), who.id(), t.getBillerId(), t.getCardLast4(), t.getCustomerMobile(), amount,
                 List.of(Status.PENDING, Status.SUCCESS), now.minusSeconds(duplicateWindowSeconds), t.getId());
 
         if (recent.isEmpty()) {
@@ -442,8 +481,8 @@ public class CreditCardBillService {
         LocalDateTime earliestRetry = recent.get(0).getPaidAt().plusSeconds(duplicateWindowSeconds);
         long waitSeconds = Math.max(1, java.time.Duration.between(now, earliestRetry).getSeconds());
 
-        log.warn("Duplicate credit card payment blocked | merchantId={} | billerId={} | card=****{} | amount={} | waitSeconds={}",
-                merchantId, t.getBillerId(), t.getCardLast4(), amount, waitSeconds);
+        log.warn("Duplicate credit card payment blocked | {} | billerId={} | card=****{} | amount={} | waitSeconds={}",
+                who.label(), t.getBillerId(), t.getCardLast4(), amount, waitSeconds);
 
         throw new IllegalArgumentException("A payment of Rs. " + amount.toPlainString()
                 + " to this card was just made. To avoid paying twice, please wait " + waitSeconds
@@ -484,7 +523,7 @@ public class CreditCardBillService {
         return Outcome.UNKNOWN;
     }
 
-    private PaymentResult finalizePayment(Long merchantId, Prepared p, VendorResponse r, Outcome outcome) {
+    private PaymentResult finalizePayment(CustomerRef who, Prepared p, VendorResponse r, Outcome outcome) {
 
         CreditCardBillTransaction t = repository.findByIdForUpdate(p.id())
                 .orElseThrow(() -> new IllegalStateException("Credit card transaction missing: " + p.id()));
@@ -512,14 +551,14 @@ public class CreditCardBillService {
                 t.setCompletedAt(LocalDateTime.now());
                 repository.save(t);
 
-                updateLedger(t.getLedgerMerchantTxnId(), "SUCCESS", null,
+                updateLedger(who, t.getLedgerMerchantTxnId(), "SUCCESS", null,
                         t.getWalletTxnId() != null ? t.getWalletTxnId() : t.getVendorTxnId());
 
-                safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), merchantId, t.getTotalDeducted(),
+                safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), who, t.getTotalDeducted(),
                         TransactionEventStatus.SUCCESS, "walletTxnId=" + t.getWalletTxnId());
 
-                log.info("Credit card payment SUCCESS | merchantId={} | requestId={} | walletTxnId={}",
-                        merchantId, t.getRequestId(), t.getWalletTxnId());
+                log.info("Credit card payment SUCCESS | {} | requestId={} | walletTxnId={}",
+                        who.label(), t.getRequestId(), t.getWalletTxnId());
             }
             case FAILED -> {
                 String vendorMessage = r.body() != null ? r.body().path("message").asText("") : "";
@@ -530,28 +569,27 @@ public class CreditCardBillService {
                 t.setCompletedAt(LocalDateTime.now());
                 repository.save(t);
 
-                updateLedger(t.getLedgerMerchantTxnId(), "FAILED", userMessage, null);
-                refundMerchantWallet(merchantId, t.getTotalDeducted(),
-                        "Credit card bill payment failed - " + userMessage);
+                updateLedger(who, t.getLedgerMerchantTxnId(), "FAILED", userMessage, null);
+                refundWallet(who, t.getTotalDeducted(), "Credit card bill payment failed - " + userMessage);
 
-                safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), merchantId, t.getTotalDeducted(),
+                safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), who, t.getTotalDeducted(),
                         TransactionEventStatus.FAILED, userMessage);
-                safeEvent(TransactionSourceType.CREDIT_CARD_REFUND, t.getId(), merchantId, t.getTotalDeducted(),
+                safeEvent(TransactionSourceType.CREDIT_CARD_REFUND, t.getId(), who, t.getTotalDeducted(),
                         TransactionEventStatus.SUCCESS, "refund for failed credit card payment " + t.getRequestId());
 
-                log.warn("Credit card payment FAILED and refunded | merchantId={} | requestId={} | httpStatus={} | vendorMessage={}",
-                        merchantId, t.getRequestId(), r.httpStatus(), vendorMessage);
+                log.warn("Credit card payment FAILED and refunded | {} | requestId={} | httpStatus={} | vendorMessage={}",
+                        who.label(), t.getRequestId(), r.httpStatus(), vendorMessage);
             }
             default -> {
                 // UNKNOWN: keep the money deducted and the row PENDING.
                 t.setResponseMessage(PENDING_MESSAGE);
                 repository.save(t);
 
-                safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), merchantId, t.getTotalDeducted(),
+                safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), who, t.getTotalDeducted(),
                         TransactionEventStatus.PENDING, "outcome unknown, awaiting confirmation");
 
-                log.error("Credit card payment OUTCOME UNKNOWN, left PENDING | merchantId={} | requestId={} | httpStatus={}",
-                        merchantId, t.getRequestId(), r != null ? r.httpStatus() : null);
+                log.error("Credit card payment OUTCOME UNKNOWN, left PENDING | {} | requestId={} | httpStatus={}",
+                        who.label(), t.getRequestId(), r != null ? r.httpStatus() : null);
             }
         }
 
@@ -559,24 +597,24 @@ public class CreditCardBillService {
     }
 
     // =====================================================================
-    // 4. History + complaints
+    // 4. History + complaints (not blocked by the switch: past payments stay visible)
     // =====================================================================
 
-    public List<TransactionView> getHistory(Long merchantId) {
-        return repository.findHistory(merchantId, Status.FETCHED, PageRequest.of(0, 100))
+    public List<TransactionView> getHistory(CustomerRef who) {
+        return repository.findHistory(who.type(), who.id(), Status.FETCHED, PageRequest.of(0, 100))
                 .stream()
                 .map(this::toView)
                 .toList();
     }
 
-    public ComplaintStatus raiseComplaint(Long merchantId, Long id, ComplaintRequest request) {
+    public ComplaintStatus raiseComplaint(CustomerRef who, Long id, ComplaintRequest request) {
 
         String description = request == null || request.description() == null ? "" : request.description().trim();
         if (description.length() < 10 || description.length() > 500) {
             throw new IllegalArgumentException("Please describe the issue in 10 to 500 characters.");
         }
 
-        CreditCardBillTransaction t = repository.findByIdAndMerchantId(id, merchantId)
+        CreditCardBillTransaction t = repository.findOwned(id, who.type(), who.id())
                 .orElseThrow(() -> new IllegalArgumentException("Transaction not found."));
 
         if (t.getStatus() == Status.FETCHED) {
@@ -596,11 +634,11 @@ public class CreditCardBillService {
         body.put("complaint_type", "Services");
         body.put("service_name", complaintServiceName);
         body.put("tranx_id", reference);
-        // The SuivrePay account is shared by all our merchants, so tag the complaint with ours.
-        body.put("description", "UtsabPay merchant #" + merchantId + ": " + description);
+        // The SuivrePay account is shared by all our merchants and franchises, so tag the complaint with ours.
+        body.put("description", "UtsabPay " + who.type().toLowerCase() + " #" + who.id() + ": " + description);
 
         VendorResponse response = client.post(raiseComplaintPath, body,
-                new CallContext(CreditCardApiLog.RAISE_COMPLAINT, merchantId, t.getBillerId(), t.getCardLast4(),
+                CallContext.of(CreditCardApiLog.RAISE_COMPLAINT, who, t.getBillerId(), t.getCardLast4(),
                         t.getRequestId(), t.getBillAmount()));
 
         if (!isSuccess(response)) {
@@ -616,14 +654,14 @@ public class CreditCardBillService {
         t.setComplaintTicketId(truncate(ticketId, 100));
         repository.save(t);
 
-        log.info("Credit card complaint raised | merchantId={} | txnId={} | ticketId={}", merchantId, id, ticketId);
+        log.info("Credit card complaint raised | {} | txnId={} | ticketId={}", who.label(), id, ticketId);
 
         return new ComplaintStatus(ticketId, "Services", complaintServiceName, description, "Open", null);
     }
 
-    public ComplaintStatus getComplaintStatus(Long merchantId, Long id) {
+    public ComplaintStatus getComplaintStatus(CustomerRef who, Long id) {
 
-        CreditCardBillTransaction t = repository.findByIdAndMerchantId(id, merchantId)
+        CreditCardBillTransaction t = repository.findOwned(id, who.type(), who.id())
                 .orElseThrow(() -> new IllegalArgumentException("Transaction not found."));
 
         if (isBlank(t.getComplaintTicketId())) {
@@ -631,7 +669,7 @@ public class CreditCardBillService {
         }
 
         VendorResponse response = client.post(complaintStatusPath, Map.of("ticket_id", t.getComplaintTicketId()),
-                new CallContext(CreditCardApiLog.COMPLAINT_STATUS, merchantId, t.getBillerId(), t.getCardLast4(),
+                CallContext.of(CreditCardApiLog.COMPLAINT_STATUS, who, t.getBillerId(), t.getCardLast4(),
                         t.getRequestId(), t.getBillAmount()));
 
         if (!isSuccess(response)) {
@@ -657,7 +695,7 @@ public class CreditCardBillService {
                 && "success".equalsIgnoreCase(r.body().path("status").asText(""));
     }
 
-    /** Turns a vendor refusal into a merchant-safe exception (internal vendor/account details stay in the log). */
+    /** Turns a vendor refusal into a customer-safe exception (internal vendor/account details stay in the log). */
     private CreditCardBillException vendorProblem(VendorResponse r, String api) {
         int http = r == null ? 0 : r.httpStatus();
         String vendorMessage = r != null && r.body() != null ? r.body().path("message").asText("") : "";
@@ -672,13 +710,13 @@ public class CreditCardBillService {
 
     /**
      * Auth problems, our own SuivrePay wallet running low, and server errors are
-     * not the merchant's business, so they get a generic message. Problems with
-     * what the merchant typed (wrong card digits, no bill, already paid) keep
+     * not the customer's business, so they get a generic message. Problems with
+     * what the customer typed (wrong card digits, no bill, already paid) keep
      * the vendor's own wording.
      */
     private String userMessage(int httpStatus, String vendorMessage) {
         // "Payment failed. Rs.X refunded. <reason>": show only the biller's reason. The amount in
-        // that text includes SuivrePay's own fee, which is not the merchant's business.
+        // that text includes SuivrePay's own fee, which is not the customer's business.
         if (!isBlank(vendorMessage) && PAYMENT_FAILED_REFUNDED.matcher(vendorMessage).find()) {
             String reason = vendorMessage.replaceFirst("(?is)^.*?refunded\\.?", "").trim();
             if (reason.isEmpty() || reason.toLowerCase().contains("api connection error")) {
@@ -710,22 +748,58 @@ public class CreditCardBillService {
         }
     }
 
-    /** Commission via the existing charge setup (payment mode CREDIT_CARD); zero when not configured yet. */
-    private BigDecimal calculateChargesSafely(BigDecimal amount, Long merchantId) {
-        try {
-            BigDecimal charges = paymentChargeService.calculateCharges(amount, PAYMENT_MODE_CODE, merchantId);
-            return charges == null ? BigDecimal.ZERO : charges;
-        } catch (Exception ex) {
-            log.warn("No CREDIT_CARD charge configuration (merchantId={}), using zero commission: {}",
-                    merchantId, ex.getMessage());
-            return BigDecimal.ZERO;
+    /**
+     * Our service charge for this bill, from the existing Payment Charges setup (same engine and
+     * rules as payout): a merchant uses its merchant / franchise-merchant / global charge, a
+     * franchise uses its own franchise / global charge. The slab for the bill amount decides the
+     * percentage or fixed charge.
+     *
+     * If no charge is configured the payment is refused (chargeRequired = true), so a payment can
+     * never silently go through for free because of a missing or misnamed configuration.
+     */
+    private BigDecimal calculateCharges(BigDecimal amount, CustomerRef who) {
+        String problem = null;
+
+        for (String code : chargeModeCodes.split(",")) {
+            String modeCode = code.trim();
+            if (modeCode.isEmpty()) {
+                continue;
+            }
+            try {
+                BigDecimal charges = who.isFranchise()
+                        ? paymentChargeService.calculateFranchiseCharges(amount, modeCode, who.id())
+                        : paymentChargeService.calculateCharges(amount, modeCode, who.id());
+                return charges == null ? BigDecimal.ZERO : charges;
+            } catch (IllegalArgumentException ex) {
+                if (ex.getMessage() != null && ex.getMessage().startsWith("Invalid payment mode")) {
+                    continue; // no payment mode with this code: try the next one
+                }
+                problem = ex.getMessage();
+                break;
+            } catch (Exception ex) {
+                // the mode exists but nothing is configured for this account / amount
+                problem = ex.getMessage();
+                break;
+            }
         }
+
+        String reason = problem != null ? problem
+                : "no payment mode found with any of these codes: " + chargeModeCodes;
+        if (chargeRequired) {
+            log.error("Credit card charge NOT configured, payment refused | {} | amount={} | reason={}",
+                    who.label(), amount, reason);
+            throw new CreditCardBillException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Service charges for credit card bill payment are not configured. "
+                            + "Please contact the administrator.");
+        }
+        log.warn("No credit card charge configuration ({}), using zero charge: {}", who.label(), reason);
+        return BigDecimal.ZERO;
     }
 
-    private void safeEvent(TransactionSourceType type, Long sourceId, Long merchantId, BigDecimal amount,
+    private void safeEvent(TransactionSourceType type, Long sourceId, CustomerRef who, BigDecimal amount,
                            TransactionEventStatus status, String note) {
         try {
-            transactionEventService.recordEvent(type, sourceId, "MERCHANT", merchantId, amount, status, note);
+            transactionEventService.recordEvent(type, sourceId, who.type(), who.id(), amount, status, note);
         } catch (Exception e) {
             log.warn("Could not record monitoring event for credit card payment: {}", e.getMessage());
         }
@@ -756,19 +830,38 @@ public class CreditCardBillService {
     }
 
     // =====================================================================
-    // Wallet & ledger (same bookkeeping as the BBPS / payout flows)
+    // Wallet & ledger: merchant wallet + merchant ledger, or franchise wallet + franchise
+    // ledger (same bookkeeping as the BBPS / payout flows)
     // =====================================================================
 
-    private BigDecimal deductMerchantBalance(Long merchantId, BigDecimal total) {
-        MerchantWallet wallet = merchantWalletRepository.findByMerchantIdForUpdate(merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+    private void lockWallet(CustomerRef who) {
+        if (who.isFranchise()) {
+            franchiseWalletRepository.findByFranchiseIdForUpdate(who.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+        } else {
+            merchantWalletRepository.findByMerchantIdForUpdate(who.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+        }
+    }
 
-        BigDecimal available = nvl(wallet.getAvailableBalance());
-        if (available.compareTo(total) < 0) {
-            throw new IllegalStateException("Insufficient wallet balance. Available: " + available
-                    + ", Required: " + total);
+    private BigDecimal deductBalance(CustomerRef who, BigDecimal total) {
+        if (who.isFranchise()) {
+            FranchiseWallet wallet = franchiseWalletRepository.findByFranchiseIdForUpdate(who.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+            BigDecimal available = nvl(wallet.getAvailableBalance());
+            requireEnough(available, total);
+            BigDecimal newBalance = available.subtract(total);
+            wallet.setAvailableBalance(newBalance);
+            wallet.setLastUpdatedAmount(total.negate());
+            wallet.setLastUpdatedAt(LocalDateTime.now());
+            franchiseWalletRepository.save(wallet);
+            return newBalance;
         }
 
+        MerchantWallet wallet = merchantWalletRepository.findByMerchantIdForUpdate(who.id())
+                .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+        BigDecimal available = nvl(wallet.getAvailableBalance());
+        requireEnough(available, total);
         BigDecimal newBalance = available.subtract(total);
         wallet.setAvailableBalance(newBalance);
         wallet.setLastUpdatedAmount(total.negate());
@@ -777,74 +870,129 @@ public class CreditCardBillService {
         return newBalance;
     }
 
-    private MerchantTransactionDetails recordDebitLedger(Long merchantId, BigDecimal total,
-                                                         BigDecimal balanceAfterDebit,
-                                                         CreditCardBillTransaction t) {
-        Merchant merchant = merchantRepository.findById(merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Merchant not found."));
-
-        MerchantTransactionDetails mtd = new MerchantTransactionDetails();
-        mtd.setMerchant(merchant);
-        mtd.setActionOnBalance("DEBIT");
-        mtd.setAmount(total.negate());
-        mtd.setCharge(t.getCharges());
-        mtd.setNetAmount(t.getBillAmount().negate());
-        mtd.setBalBeforeTran(balanceAfterDebit.add(total));
-        mtd.setBalAfterTran(balanceAfterDebit);
-        mtd.setFinalBalance(balanceAfterDebit);
-        mtd.setTransactionDate(LocalDateTime.now());
-        mtd.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
-        mtd.setTranStatus("PENDING");
-        mtd.setTransactionType("DEBIT");
-        mtd.setService("CREDIT_CARD");
-        mtd.setRemarks("Credit card bill payment - " + (t.getBillerName() != null ? t.getBillerName() : t.getBillerId())
-                + " - card ending " + t.getCardLast4());
-        return merchantTransDetRepository.save(mtd);
+    private static void requireEnough(BigDecimal available, BigDecimal total) {
+        if (available.compareTo(total) < 0) {
+            throw new IllegalStateException("Insufficient wallet balance. Available: " + available
+                    + ", Required: " + total);
+        }
     }
 
-    private void updateLedger(Long ledgerId, String status, String failureRemarks, String vendorTxnId) {
+    /** Writes the DEBIT row in the right ledger and returns its transaction id. */
+    private Long recordDebitLedger(CustomerRef who, BigDecimal total, BigDecimal balanceAfterDebit,
+                                   CreditCardBillTransaction t) {
+        String remarks = "Credit card bill payment - " + (t.getBillerName() != null ? t.getBillerName() : t.getBillerId())
+                + " - card ending " + t.getCardLast4();
+
+        if (who.isFranchise()) {
+            Franchise franchise = franchiseRepository.findById(who.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Franchise not found."));
+            FranchiseTransactionDetails ftd = new FranchiseTransactionDetails();
+            ftd.setFranchise(franchise);
+            fillDebit(ftd, total, balanceAfterDebit, t, remarks);
+            return franchiseTransDetRepository.save(ftd).getTransactionId();
+        }
+
+        Merchant merchant = merchantRepository.findById(who.id())
+                .orElseThrow(() -> new IllegalArgumentException("Merchant not found."));
+        MerchantTransactionDetails mtd = new MerchantTransactionDetails();
+        mtd.setMerchant(merchant);
+        fillDebit(mtd, total, balanceAfterDebit, t, remarks);
+        mtd.setGrossCharge(t.getCharges()); // same two charge columns as the payout ledger row
+        return merchantTransDetRepository.save(mtd).getTransactionId();
+    }
+
+    private void fillDebit(com.project2.ism.Model.TransactionDetailsBase row, BigDecimal total,
+                           BigDecimal balanceAfterDebit, CreditCardBillTransaction t, String remarks) {
+        row.setActionOnBalance("DEBIT");
+        row.setAmount(total.negate());
+        row.setCharge(t.getCharges());
+        row.setNetAmount(t.getBillAmount().negate());
+        row.setBalBeforeTran(balanceAfterDebit.add(total));
+        row.setBalAfterTran(balanceAfterDebit);
+        row.setFinalBalance(balanceAfterDebit);
+        row.setTransactionDate(LocalDateTime.now());
+        row.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
+        row.setTranStatus("PENDING");
+        row.setTransactionType("DEBIT");
+        row.setService("CREDIT_CARD");
+        row.setRemarks(remarks);
+    }
+
+    private void updateLedger(CustomerRef who, Long ledgerId, String status, String failureRemarks, String vendorTxnId) {
         if (ledgerId == null) {
             return;
         }
-        merchantTransDetRepository.findById(ledgerId).ifPresent(mtd -> {
-            mtd.setTranStatus(status);
-            if (vendorTxnId != null) {
-                mtd.setVendorTransactionId(vendorTxnId);
-            }
-            if (failureRemarks != null) {
-                mtd.setFailureRemarks(failureRemarks);
-            }
-            merchantTransDetRepository.save(mtd);
-        });
+        if (who.isFranchise()) {
+            franchiseTransDetRepository.findById(ledgerId).ifPresent(row -> {
+                applyLedgerUpdate(row, status, failureRemarks, vendorTxnId);
+                franchiseTransDetRepository.save(row);
+            });
+        } else {
+            merchantTransDetRepository.findById(ledgerId).ifPresent(row -> {
+                applyLedgerUpdate(row, status, failureRemarks, vendorTxnId);
+                merchantTransDetRepository.save(row);
+            });
+        }
     }
 
-    private void refundMerchantWallet(Long merchantId, BigDecimal refundAmount, String remark) {
-        MerchantWallet wallet = merchantWalletRepository.findByMerchantIdForUpdate(merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+    private static void applyLedgerUpdate(com.project2.ism.Model.TransactionDetailsBase row, String status,
+                                          String failureRemarks, String vendorTxnId) {
+        row.setTranStatus(status);
+        if (vendorTxnId != null) {
+            row.setVendorTransactionId(vendorTxnId);
+        }
+        if (failureRemarks != null) {
+            row.setFailureRemarks(failureRemarks);
+        }
+    }
 
-        BigDecimal newBalance = nvl(wallet.getAvailableBalance()).add(refundAmount);
-        wallet.setAvailableBalance(newBalance);
-        wallet.setLastUpdatedAmount(refundAmount);
-        wallet.setLastUpdatedAt(LocalDateTime.now());
-        merchantWalletRepository.save(wallet);
+    private void refundWallet(CustomerRef who, BigDecimal refundAmount, String remark) {
+        if (who.isFranchise()) {
+            FranchiseWallet wallet = franchiseWalletRepository.findByFranchiseIdForUpdate(who.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+            BigDecimal newBalance = nvl(wallet.getAvailableBalance()).add(refundAmount);
+            wallet.setAvailableBalance(newBalance);
+            wallet.setLastUpdatedAmount(refundAmount);
+            wallet.setLastUpdatedAt(LocalDateTime.now());
+            franchiseWalletRepository.save(wallet);
 
-        Merchant merchant = merchantRepository.findById(merchantId).orElseThrow();
-        MerchantTransactionDetails refund = new MerchantTransactionDetails();
-        refund.setMerchant(merchant);
-        refund.setActionOnBalance("CREDIT");
-        refund.setAmount(refundAmount);
-        refund.setBalBeforeTran(newBalance.subtract(refundAmount));
-        refund.setBalAfterTran(newBalance);
-        refund.setFinalBalance(newBalance);
-        refund.setTransactionDate(LocalDateTime.now());
-        refund.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
-        refund.setTranStatus("SUCCESS");
-        refund.setTransactionType("CREDIT");
-        refund.setService("CREDIT_CARD_REFUND");
-        refund.setRemarks(remark);
-        merchantTransDetRepository.save(refund);
+            Franchise franchise = franchiseRepository.findById(who.id()).orElseThrow();
+            FranchiseTransactionDetails refund = new FranchiseTransactionDetails();
+            refund.setFranchise(franchise);
+            fillRefund(refund, refundAmount, newBalance, remark);
+            franchiseTransDetRepository.save(refund);
+        } else {
+            MerchantWallet wallet = merchantWalletRepository.findByMerchantIdForUpdate(who.id())
+                    .orElseThrow(() -> new IllegalArgumentException("Wallet not found."));
+            BigDecimal newBalance = nvl(wallet.getAvailableBalance()).add(refundAmount);
+            wallet.setAvailableBalance(newBalance);
+            wallet.setLastUpdatedAmount(refundAmount);
+            wallet.setLastUpdatedAt(LocalDateTime.now());
+            merchantWalletRepository.save(wallet);
 
-        log.info("Refunded merchant {} for failed credit card payment: amount={}", merchantId, refundAmount);
+            Merchant merchant = merchantRepository.findById(who.id()).orElseThrow();
+            MerchantTransactionDetails refund = new MerchantTransactionDetails();
+            refund.setMerchant(merchant);
+            fillRefund(refund, refundAmount, newBalance, remark);
+            merchantTransDetRepository.save(refund);
+        }
+
+        log.info("Refunded {} for failed credit card payment: amount={}", who.label(), refundAmount);
+    }
+
+    private void fillRefund(com.project2.ism.Model.TransactionDetailsBase row, BigDecimal refundAmount,
+                            BigDecimal newBalance, String remark) {
+        row.setActionOnBalance("CREDIT");
+        row.setAmount(refundAmount);
+        row.setBalBeforeTran(newBalance.subtract(refundAmount));
+        row.setBalAfterTran(newBalance);
+        row.setFinalBalance(newBalance);
+        row.setTransactionDate(LocalDateTime.now());
+        row.setUpdatedDateAndTimeOfTransaction(LocalDateTime.now());
+        row.setTranStatus("SUCCESS");
+        row.setTransactionType("CREDIT");
+        row.setService("CREDIT_CARD_REFUND");
+        row.setRemarks(remark);
     }
 
     private static BigDecimal nvl(BigDecimal v) {
