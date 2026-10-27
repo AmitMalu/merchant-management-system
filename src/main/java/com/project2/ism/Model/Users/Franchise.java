@@ -38,6 +38,24 @@ public class Franchise extends CustomerBase {
     @JsonBackReference
     private List<Merchant> merchants = new ArrayList<>();
 
+    // Feature flags set by admin (Merchant Settings screen). A flag that is false blocks the
+    // transaction even when the menu is visible.
+    //  - Franchises created before these flags existed have NULL here: payout stays allowed for
+    //    them (so nothing stops working at deploy time) until an admin saves their settings;
+    //    credit card bill payment is new, so NULL means "not enabled".
+    //  - New franchises start with both false.
+    @Column(name = "is_payout")
+    private Boolean isPayout = false;
+
+    @Column(name = "is_credit_card_bill_payment")
+    private Boolean isCreditCardBillPayment = false;
+
+    public Boolean getPayout() { return isPayout; }
+    public void setPayout(Boolean payout) { this.isPayout = payout; }
+
+    public Boolean getCreditCardBillPayment() { return isCreditCardBillPayment; }
+    public void setCreditCardBillPayment(Boolean creditCardBillPayment) { this.isCreditCardBillPayment = creditCardBillPayment; }
+
     public Franchise() {
     }
     // Add getters and setters for these fields

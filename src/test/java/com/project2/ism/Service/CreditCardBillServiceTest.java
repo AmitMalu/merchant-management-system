@@ -2,6 +2,7 @@ package com.project2.ism.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project2.ism.DTO.CreditCardDTO.CreditCardDtos.FetchBillRequest;
+import com.project2.ism.Exception.CreditCardBillException;
 import com.project2.ism.DTO.CreditCardDTO.CreditCardDtos.FetchedBill;
 import com.project2.ism.DTO.CreditCardDTO.CreditCardDtos.PayBillRequest;
 import com.project2.ism.DTO.CreditCardDTO.CreditCardDtos.PaymentResult;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.*;
 class CreditCardBillServiceTest {
 
     private static final Long MERCHANT = 7L;
+    private static final CustomerRef WHO = CustomerRef.merchant(MERCHANT);
     private static final String REQ = "SP20250115BP1234567890";
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -47,6 +49,8 @@ class CreditCardBillServiceTest {
     private CreditCardBillTransactionRepository repo;
     private PaymentChargeService chargeService;
     private CreditCardBillService service;
+    private FeatureAccessService featureAccess;
+    private MerchantTransDetRepository ledgerRepo;
 
     private MerchantWallet wallet;
     private CreditCardBillTransaction bill;
@@ -57,12 +61,17 @@ class CreditCardBillServiceTest {
         repo = mock(CreditCardBillTransactionRepository.class);
         MerchantWalletRepository walletRepo = mock(MerchantWalletRepository.class);
         MerchantRepository merchantRepo = mock(MerchantRepository.class);
-        MerchantTransDetRepository ledgerRepo = mock(MerchantTransDetRepository.class);
+        ledgerRepo = mock(MerchantTransDetRepository.class);
         chargeService = mock(PaymentChargeService.class);
         TransactionEventService events = mock(TransactionEventService.class);
 
+        featureAccess = mock(FeatureAccessService.class); // switch is ON unless a test says otherwise
         service = new CreditCardBillService(client, repo, walletRepo, merchantRepo, ledgerRepo,
-                chargeService, events, mock(PlatformTransactionManager.class));
+                chargeService, events, mock(PlatformTransactionManager.class),
+                mock(com.project2.ism.Repository.FranchiseWalletRepository.class),
+                mock(com.project2.ism.Repository.FranchiseRepository.class),
+                mock(com.project2.ism.Repository.FranchiseTransDetRepository.class),
+                featureAccess);
         ReflectionTestUtils.setField(service, "billersPath", "/billers");
         ReflectionTestUtils.setField(service, "fetchBillPath", "/fetch");
         ReflectionTestUtils.setField(service, "payBillPath", "/pay");
@@ -71,6 +80,8 @@ class CreditCardBillServiceTest {
         ReflectionTestUtils.setField(service, "complaintServiceName", "BBPS");
         ReflectionTestUtils.setField(service, "duplicateWindowSeconds", 120L);
         ReflectionTestUtils.setField(service, "fetchReuseSeconds", 60L);
+        ReflectionTestUtils.setField(service, "chargeModeCodes", "CREDIT_CARD,CC_BILL");
+        ReflectionTestUtils.setField(service, "chargeRequired", true);
 
         wallet = new MerchantWallet();
         wallet.setAvailableBalance(new BigDecimal("10000.00"));
@@ -95,7 +106,7 @@ class CreditCardBillServiceTest {
         bill.setStatus(Status.FETCHED);
         bill.setFetchedAt(LocalDateTime.now());
 
-        when(repo.findByRequestIdAndMerchantIdForUpdate(REQ, MERCHANT)).thenReturn(Optional.of(bill));
+        when(repo.findByRequestIdForUpdate(REQ, "MERCHANT", MERCHANT)).thenReturn(Optional.of(bill));
         when(repo.findByIdForUpdate(1L)).thenReturn(Optional.of(bill));
         when(repo.save(any(CreditCardBillTransaction.class))).thenAnswer(i -> i.getArgument(0));
     }
@@ -112,7 +123,7 @@ class CreditCardBillServiceTest {
     void success_keepsMoneyDeducted_andMarksSuccess() throws Exception {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("SUCCESS", r.status());
         assertEquals(new BigDecimal("8995.00"), wallet.getAvailableBalance()); // 10000 - (1000 + 5)
@@ -124,7 +135,7 @@ class CreditCardBillServiceTest {
     void amountSentToVendor_comesFromStoredBill_notFromClient() throws Exception {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
 
-        service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        service.payBill(WHO, new PayBillRequest(REQ, null));
 
         verify(client).post(eq("/pay"), argThat(b -> {
             java.util.Map<?, ?> m = (java.util.Map<?, ?>) b;
@@ -132,7 +143,7 @@ class CreditCardBillServiceTest {
                     && "AP503682".equals(m.get("MID"))
                     // card details are repeated from the stored bill, like SuivrePay's sample request
                     && m.get("input_params") instanceof java.util.List<?> l && l.size() == 2;
-        }), argThat(ctx -> "PAY_BILL".equals(ctx.action()) && MERCHANT.equals(ctx.merchantId())
+        }), argThat(ctx -> "PAY_BILL".equals(ctx.action()) && MERCHANT.equals(ctx.customerId()) && "MERCHANT".equals(ctx.customerType())
                 && "IDFC00000NATFQ".equals(ctx.billerId()) && "3044".equals(ctx.cardLast4())
                 && REQ.equals(ctx.requestId())));
     }
@@ -142,7 +153,7 @@ class CreditCardBillServiceTest {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(402,
                 "{\"status\":\"error\",\"message\":\"Insufficient Balance. Required: 5435.36 (Credit Wallet: 1.00)\"}"));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("FAILED", r.status());
         assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance()); // refunded in full
@@ -154,7 +165,7 @@ class CreditCardBillServiceTest {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(400,
                 "{\"status\":\"error\",\"message\":\"This bill has already been paid.\"}"));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("FAILED", r.status());
         assertEquals("This bill has already been paid.", r.message());
@@ -166,7 +177,7 @@ class CreditCardBillServiceTest {
         when(client.post(eq("/pay"), any(), any()))
                 .thenThrow(new SuivrePayClient.VendorUnreachableException("timeout", new RuntimeException()));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("PENDING", r.status());
         assertEquals(Status.PENDING, bill.getStatus());
@@ -178,7 +189,7 @@ class CreditCardBillServiceTest {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(500,
                 "{\"status\":\"error\",\"message\":\"API Connection Error: x\"}"));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("PENDING", r.status());
         assertEquals(new BigDecimal("8995.00"), wallet.getAvailableBalance());
@@ -189,7 +200,7 @@ class CreditCardBillServiceTest {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(500,
                 "{\"status\":\"error\",\"message\":\"Payment failed. Rs.5435.36 refunded. API Connection Error: timeout\"}"));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("FAILED", r.status());
         assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
@@ -203,7 +214,7 @@ class CreditCardBillServiceTest {
                 "{\"status\":\"error\",\"response_code\":\"001\","
                         + "\"message\":\"Payment failed. Rs.5435.36 refunded. Customer account is blocked\"}"));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("FAILED", r.status());
         assertTrue(r.message().contains("Customer account is blocked"), r.message());
@@ -215,7 +226,7 @@ class CreditCardBillServiceTest {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(500,
                 "{\"status\":\"error\",\"message\":\"Database connection failed.\"}"));
 
-        PaymentResult r = service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
 
         assertEquals("PENDING", r.status());
         assertEquals(new BigDecimal("8995.00"), wallet.getAvailableBalance());
@@ -229,7 +240,7 @@ class CreditCardBillServiceTest {
 
         com.project2.ism.Exception.CreditCardBillException ex = assertThrows(
                 com.project2.ism.Exception.CreditCardBillException.class,
-                () -> service.fetchBill(MERCHANT, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790")));
+                () -> service.fetchBill(WHO, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790")));
 
         assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, ex.getStatus());
         assertTrue(ex.getMessage().startsWith("Incorrect / invalid Customer account"), ex.getMessage());
@@ -241,7 +252,7 @@ class CreditCardBillServiceTest {
         bill.setStatus(Status.PENDING);
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest(REQ, null)));
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
 
         assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
         verify(client, never()).post(eq("/pay"), any(), any());
@@ -253,11 +264,11 @@ class CreditCardBillServiceTest {
         earlier.setId(99L);
         earlier.setStatus(Status.SUCCESS);
         earlier.setPaidAt(LocalDateTime.now().minusSeconds(30));
-        when(repo.findRecentSimilarPayments(anyLong(), anyString(), anyString(), any(), any(), any(), any(), anyLong()))
+        when(repo.findRecentSimilarPayments(anyString(), anyLong(), anyString(), anyString(), any(), any(), any(), any(), anyLong()))
                 .thenReturn(java.util.List.of(earlier));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest(REQ, null)));
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
 
         assertTrue(ex.getMessage().contains("wait"), ex.getMessage());
         assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
@@ -269,9 +280,9 @@ class CreditCardBillServiceTest {
     void duplicateCheck_looksOnlyAtPendingAndSuccess_withinTheWindow() throws Exception {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
 
-        service.payBill(MERCHANT, new PayBillRequest(REQ, null));
+        service.payBill(WHO, new PayBillRequest(REQ, null));
 
-        verify(repo).findRecentSimilarPayments(eq(MERCHANT), eq("IDFC00000NATFQ"), eq("3044"), any(),
+        verify(repo).findRecentSimilarPayments(eq("MERCHANT"), eq(MERCHANT), eq("IDFC00000NATFQ"), eq("3044"), any(),
                 eq(new BigDecimal("1000.00")),
                 eq(java.util.List.of(Status.PENDING, Status.SUCCESS)),
                 argThat(since -> since.isAfter(LocalDateTime.now().minusSeconds(125))
@@ -284,17 +295,17 @@ class CreditCardBillServiceTest {
         bill.setFetchedAt(LocalDateTime.now().minusMinutes(31));
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest(REQ, null)));
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
 
         assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
     }
 
     @Test
     void unknownRequestId_orOtherMerchantsBill_isRejected() {
-        when(repo.findByRequestIdAndMerchantIdForUpdate("SPOTHER", MERCHANT)).thenReturn(Optional.empty());
+        when(repo.findByRequestIdForUpdate("SPOTHER", "MERCHANT", MERCHANT)).thenReturn(Optional.empty());
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest("SPOTHER", null)));
+                () -> service.payBill(WHO, new PayBillRequest("SPOTHER", null)));
     }
 
     @Test
@@ -302,14 +313,14 @@ class CreditCardBillServiceTest {
         bill.setBillAmount(new BigDecimal("50000.00"));
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest(REQ, null)));
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
         assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
     }
 
     @Test
     void invalidPan_isRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest(REQ, "BAD123")));
+                () -> service.payBill(WHO, new PayBillRequest(REQ, "BAD123")));
     }
 
     @Test
@@ -317,7 +328,7 @@ class CreditCardBillServiceTest {
         wallet.setAvailableBalance(new BigDecimal("100.00"));
 
         assertThrows(IllegalStateException.class,
-                () -> service.payBill(MERCHANT, new PayBillRequest(REQ, null)));
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
 
         assertEquals(Status.FETCHED, bill.getStatus());
         assertEquals(new BigDecimal("100.00"), wallet.getAvailableBalance());
@@ -331,7 +342,7 @@ class CreditCardBillServiceTest {
                  "biller_id":"IDFC00000NATFQ","biller_name":"IDFC First Bank Credit Card","amount":5423.56,
                  "bill_date":"2025-01-10","due_date":"2025-02-05","customer_name":"RAJESH KUMAR","bill_number":"CC1"}}"""));
 
-        FetchedBill f = service.fetchBill(MERCHANT, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790"));
+        FetchedBill f = service.fetchBill(WHO, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790"));
 
         assertEquals("SPNEW1", f.requestId());
         assertEquals(new BigDecimal("5423.56"), f.billAmount());
@@ -344,7 +355,7 @@ class CreditCardBillServiceTest {
         // the request carries the mobile at top level too, as in SuivrePay's sample
         verify(client).post(eq("/fetch"), argThat(b -> "9250907790".equals(((java.util.Map<?, ?>) b).get("mobile"))
                 && "IDFC00000NATFQ".equals(((java.util.Map<?, ?>) b).get("biller_id"))),
-                argThat(ctx -> "FETCH_BILL".equals(ctx.action()) && MERCHANT.equals(ctx.merchantId())));
+                argThat(ctx -> "FETCH_BILL".equals(ctx.action()) && MERCHANT.equals(ctx.customerId()) && "MERCHANT".equals(ctx.customerType())));
     }
 
     @Test
@@ -355,7 +366,7 @@ class CreditCardBillServiceTest {
 
         com.project2.ism.Exception.CreditCardBillException ex = assertThrows(
                 com.project2.ism.Exception.CreditCardBillException.class,
-                () -> service.fetchBill(MERCHANT, new FetchBillRequest("ICIC00000NATSI", "1003", "7506821018")));
+                () -> service.fetchBill(WHO, new FetchBillRequest("ICIC00000NATSI", "1003", "7506821018")));
 
         assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, ex.getStatus());
         assertTrue(ex.getMessage().contains("wait a few minutes"), ex.getMessage());
@@ -363,11 +374,11 @@ class CreditCardBillServiceTest {
 
     @Test
     void fetchBill_sameCardFetchedMomentsAgo_reusesTheBill_andDoesNotCallTheBillerAgain() {
-        when(repo.findFirstByMerchantIdAndBillerIdAndCardLast4AndCustomerMobileAndStatusAndFetchedAtAfterOrderByFetchedAtDesc(
-                eq(MERCHANT), eq("IDFC00000NATFQ"), eq("3044"), eq("9250907790"), eq(Status.FETCHED), any()))
-                .thenReturn(Optional.of(bill));
+        when(repo.findRecentFetched(eq("MERCHANT"), eq(MERCHANT), eq("IDFC00000NATFQ"), eq("3044"),
+                eq("9250907790"), eq(Status.FETCHED), any(), any()))
+                .thenReturn(java.util.List.of(bill));
 
-        FetchedBill f = service.fetchBill(MERCHANT, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790"));
+        FetchedBill f = service.fetchBill(WHO, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790"));
 
         assertEquals(REQ, f.requestId());
         assertEquals(new BigDecimal("1000.00"), f.billAmount());
@@ -375,11 +386,112 @@ class CreditCardBillServiceTest {
         verify(client, never()).post(eq("/fetch"), any(), any());
     }
 
+    // ------------------------------------------------------------------
+    // Service charge (Payment Charges setup)
+    // ------------------------------------------------------------------
+
+    @Test
+    void charge_isCutFromTheWallet_andRecordedInTheBillAndTheLedger() throws Exception {
+        when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
+
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
+
+        assertEquals(new BigDecimal("5.00"), r.charges());
+        assertEquals(new BigDecimal("1005.00"), r.totalDeducted());
+        assertEquals(new BigDecimal("8995.00"), wallet.getAvailableBalance());   // bill + charge
+        assertEquals(new BigDecimal("5.00"), bill.getCharges());
+        assertEquals(new BigDecimal("1005.00"), bill.getTotalDeducted());
+
+        org.mockito.ArgumentCaptor<MerchantTransactionDetails> row =
+                org.mockito.ArgumentCaptor.forClass(MerchantTransactionDetails.class);
+        verify(ledgerRepo).save(row.capture());
+        MerchantTransactionDetails mtd = row.getValue();
+        assertEquals(new BigDecimal("-1005.00"), mtd.getAmount());      // what left the wallet
+        assertEquals(new BigDecimal("-1000.00"), mtd.getNetAmount());   // the bill itself
+        assertEquals(new BigDecimal("5.00"), mtd.getCharge());
+        assertEquals(new BigDecimal("5.00"), mtd.getGrossCharge());
+        assertEquals("CREDIT_CARD", mtd.getService());
+    }
+
+    @Test
+    void chargeUsesThePaymentModeThatExists_whenTheFirstCodeDoesNot() throws Exception {
+        when(chargeService.calculateCharges(any(), eq("CREDIT_CARD"), anyLong()))
+                .thenThrow(new IllegalArgumentException("Invalid payment mode: CREDIT_CARD"));
+        when(chargeService.calculateCharges(any(), eq("CC_BILL"), anyLong())).thenReturn(new BigDecimal("11.80"));
+        when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
+
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
+
+        assertEquals(new BigDecimal("11.80"), r.charges());
+        assertEquals(new BigDecimal("1011.80"), r.totalDeducted());
+        assertEquals(new BigDecimal("8988.20"), wallet.getAvailableBalance());
+    }
+
+    @Test
+    void noChargeConfigured_refusesThePayment_insteadOfSilentlyChargingNothing() {
+        when(chargeService.calculateCharges(any(), anyString(), anyLong()))
+                .thenThrow(new IllegalArgumentException("Invalid payment mode: X"));
+
+        CreditCardBillException ex = assertThrows(CreditCardBillException.class,
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
+
+        assertTrue(ex.getMessage().contains("not configured"), ex.getMessage());
+        assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
+        assertEquals(Status.FETCHED, bill.getStatus());
+        verify(client, never()).post(eq("/pay"), any(), any());
+    }
+
+    @Test
+    void modeExistsButNoSlabForThisAmount_refusesThePayment() {
+        when(chargeService.calculateCharges(any(), anyString(), anyLong()))
+                .thenThrow(new IllegalStateException("Amount 1000.00 does not fall in any configured slab"));
+
+        assertThrows(CreditCardBillException.class, () -> service.payBill(WHO, new PayBillRequest(REQ, null)));
+
+        assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
+        verify(client, never()).post(eq("/pay"), any(), any());
+    }
+
+    @Test
+    void fetchBill_alsoShowsTheCharge_andRefusesWhenNoneIsConfigured() throws Exception {
+        when(chargeService.calculateCharges(any(), anyString(), anyLong()))
+                .thenThrow(new IllegalStateException("No active charge configured"));
+        when(client.post(eq("/fetch"), any(), any())).thenReturn(resp(200,
+                "{\"status\":\"success\",\"data\":{\"request_id\":\"SPN\",\"amount\":1000.00}}"));
+
+        assertThrows(CreditCardBillException.class,
+                () -> service.fetchBill(WHO, new FetchBillRequest("IDFC00000NATFQ", "3044", "9250907790")));
+    }
+
+    @Test
+    void chargeNotRequired_fallsBackToZero() throws Exception {
+        ReflectionTestUtils.setField(service, "chargeRequired", false);
+        when(chargeService.calculateCharges(any(), anyString(), anyLong()))
+                .thenThrow(new IllegalArgumentException("Invalid payment mode: X"));
+        when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
+
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
+
+        assertEquals(BigDecimal.ZERO, r.charges());
+        assertEquals(new BigDecimal("9000.00"), wallet.getAvailableBalance());
+    }
+
+    @Test
+    void refundReturnsTheBillAndTheCharge() throws Exception {
+        when(client.post(eq("/pay"), any(), any())).thenReturn(resp(400,
+                "{\"status\":\"error\",\"message\":\"This bill has already been paid.\"}"));
+
+        PaymentResult r = service.payBill(WHO, new PayBillRequest(REQ, null));
+
+        assertEquals("FAILED", r.status());
+        assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance()); // bill 1000 + charge 5 came back
+    }
+
     @Test
     void fetchBill_rejectsBadCardDigits() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.fetchBill(MERCHANT, new FetchBillRequest("X", "30445", "9250907790")));
+                () -> service.fetchBill(WHO, new FetchBillRequest("X", "30445", "9250907790")));
         assertThrows(IllegalArgumentException.class,
-                () -> service.fetchBill(MERCHANT, new FetchBillRequest("X", "3044", "12345")));
+                () -> service.fetchBill(WHO, new FetchBillRequest("X", "3044", "12345")));
     }
 }

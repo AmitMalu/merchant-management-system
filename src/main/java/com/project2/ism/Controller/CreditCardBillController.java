@@ -17,8 +17,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Credit card bill payment (merchant only; see SecurityConfig).
- * The merchant is always the logged-in user: no endpoint accepts a merchant id.
+ * Credit card bill payment for merchants and franchises (see SecurityConfig).
+ * The account is always the logged-in user: no endpoint accepts a merchant / franchise id.
+ * Billers, fetch bill and pay are refused when the account's "credit card bill payment"
+ * switch is off (checked in CreditCardBillService).
  */
 @RestController
 @RequestMapping("/credit-card")
@@ -36,21 +38,17 @@ public class CreditCardBillController {
 
     @GetMapping("/billers")
     public ResponseEntity<?> billers() {
-        Long merchantId = callerIdentity.currentMerchantId();
-        return ok(service.getBillers(merchantId));
+        return ok(service.getBillers(callerIdentity.currentCustomer()));
     }
 
     @PostMapping("/fetch-bill")
     public ResponseEntity<?> fetchBill(@RequestBody FetchBillRequest request) {
-        Long merchantId = callerIdentity.currentMerchantId();
-        return ok(service.fetchBill(merchantId, request));
+        return ok(service.fetchBill(callerIdentity.currentCustomer(), request));
     }
 
     @PostMapping("/pay")
     public ResponseEntity<?> pay(@RequestBody PayBillRequest request) {
-        Long merchantId = callerIdentity.currentMerchantId();
-
-        PaymentResult result = service.payBill(merchantId, request);
+        PaymentResult result = service.payBill(callerIdentity.currentCustomer(), request);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", "SUCCESS".equals(result.status()));
@@ -66,20 +64,17 @@ public class CreditCardBillController {
 
     @GetMapping("/transactions")
     public ResponseEntity<?> transactions() {
-        Long merchantId = callerIdentity.currentMerchantId();
-        return ok(service.getHistory(merchantId));
+        return ok(service.getHistory(callerIdentity.currentCustomer()));
     }
 
     @PostMapping("/transactions/{id}/complaint")
     public ResponseEntity<?> raiseComplaint(@PathVariable Long id, @RequestBody ComplaintRequest request) {
-        Long merchantId = callerIdentity.currentMerchantId();
-        return ok(service.raiseComplaint(merchantId, id, request));
+        return ok(service.raiseComplaint(callerIdentity.currentCustomer(), id, request));
     }
 
     @GetMapping("/transactions/{id}/complaint-status")
     public ResponseEntity<?> complaintStatus(@PathVariable Long id) {
-        Long merchantId = callerIdentity.currentMerchantId();
-        return ok(service.getComplaintStatus(merchantId, id));
+        return ok(service.getComplaintStatus(callerIdentity.currentCustomer(), id));
     }
 
     // ------------------------------------------------------------------

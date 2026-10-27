@@ -115,10 +115,16 @@ public class SuivrePayClient {
     }
 
     /** Who is making a call and what it is for. Only used for the admin "Credit Card Logs". */
-    public record CallContext(String action, Long merchantId, String billerId, String cardLast4,
-                              String requestId, java.math.BigDecimal amount) {
+    public record CallContext(String action, String customerType, Long customerId, String billerId,
+                              String cardLast4, String requestId, java.math.BigDecimal amount) {
         public static CallContext none() {
-            return new CallContext(CreditCardApiLog.UNKNOWN_ACTION, null, null, null, null, null);
+            return new CallContext(CreditCardApiLog.UNKNOWN_ACTION, null, null, null, null, null, null);
+        }
+
+        public static CallContext of(String action, CustomerRef who, String billerId, String cardLast4,
+                                     String requestId, java.math.BigDecimal amount) {
+            return new CallContext(action, who != null ? who.type() : null, who != null ? who.id() : null,
+                    billerId, cardLast4, requestId, amount);
         }
     }
 
@@ -219,7 +225,8 @@ public class SuivrePayClient {
         try {
             CreditCardApiLog entry = new CreditCardApiLog();
             entry.setCallId(callId);
-            entry.setMerchantId(ctx.merchantId());
+            entry.setCustomerType(ctx.customerType() != null ? ctx.customerType() : CustomerRef.MERCHANT);
+            entry.setMerchantId(ctx.customerId());
             entry.setAction(ctx.action());
             entry.setBillerId(ctx.billerId());
             entry.setCardLast4(ctx.cardLast4());

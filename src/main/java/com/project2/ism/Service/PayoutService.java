@@ -60,6 +60,7 @@ public class PayoutService {
     private final ObjectMapper objectMapper;
     private final com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService;
     private final com.project2.ism.Service.Monitoring.AlertService alertService;
+    private final FeatureAccessService featureAccess;
 
 
     public PayoutService(PayoutTransactionRepository payoutTxnRepo,
@@ -74,7 +75,9 @@ public class PayoutService {
                          PayoutBankRepository payoutBanksRepo, VendorStateRepository vendorStateRepo, VendorBankRepository vendorBankRepo, PaymentVendorResponseLogRepository paymentVendorResponseLogRepository, ObjectMapper objectMapper,
                          MerchantTransDetRepository merchantTransDetRepo,
                          com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService,
-                         com.project2.ism.Service.Monitoring.AlertService alertService) {
+                         com.project2.ism.Service.Monitoring.AlertService alertService,
+                         FeatureAccessService featureAccess) {
+        this.featureAccess = featureAccess;
         this.payoutTxnRepo = payoutTxnRepo;
         this.merchantWalletRepo = merchantWalletRepo;
         this.franchiseWalletRepo = franchiseWalletRepo;
@@ -118,6 +121,10 @@ public class PayoutService {
                 request.getAmount());
 
         try {
+            // The Payout switch (Merchant Settings) must be on for this account, even if the menu is
+            // visible. Checked before anything else, so nothing is deducted when it is off.
+            featureAccess.requirePayoutEnabled(new CustomerRef(request.getInitiatorType(), request.getInitiatorId()));
+
             // Bank verification returns holder names with a title prefix
             // (e.g. "Mr. SUBHENDU  MONDAL"); the vendor fails payouts carrying
             // it, so clean the name once here — covers the vendor payload and

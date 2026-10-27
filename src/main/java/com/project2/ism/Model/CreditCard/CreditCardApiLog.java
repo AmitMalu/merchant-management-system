@@ -49,9 +49,15 @@ public class CreditCardApiLog {
     @Column(name = "call_id", length = 20)
     private String callId;
 
+    /** MERCHANT or FRANCHISE; older rows (merchant only) get MERCHANT from the column default. */
+    @Column(name = "customer_type", length = 20, columnDefinition = "varchar(20) default 'MERCHANT'")
+    private String customerType = "MERCHANT";
+
+    /** Id of the merchant or franchise (see customerType). */
     @Column(name = "merchant_id")
     private Long merchantId;
 
+    /** Business name of the merchant, or franchise name. */
     @Column(name = "merchant_name")
     private String merchantName;
 
@@ -111,6 +117,9 @@ public class CreditCardApiLog {
 
     public String getCallId() { return callId; }
     public void setCallId(String callId) { this.callId = callId; }
+
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String customerType) { this.customerType = customerType; }
 
     public Long getMerchantId() { return merchantId; }
     public void setMerchantId(Long merchantId) { this.merchantId = merchantId; }

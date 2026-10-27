@@ -154,7 +154,7 @@ class SuivrePayClientLoggingTest {
     }
 
     private static SuivrePayClient.CallContext ctx(String action) {
-        return new SuivrePayClient.CallContext(action, 7L, "IDFC00000NATFQ", "3044", null, null);
+        return new SuivrePayClient.CallContext(action, "MERCHANT", 7L, "IDFC00000NATFQ", "3044", null, null);
     }
 
     @Test

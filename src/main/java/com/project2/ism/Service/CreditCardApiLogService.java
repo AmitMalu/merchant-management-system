@@ -2,6 +2,7 @@ package com.project2.ism.Service;
 
 import com.project2.ism.Model.CreditCard.CreditCardApiLog;
 import com.project2.ism.Repository.CreditCardApiLogRepository;
+import com.project2.ism.Repository.FranchiseRepository;
 import com.project2.ism.Repository.MerchantRepository;
 import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
@@ -28,10 +29,13 @@ public class CreditCardApiLogService {
 
     private final CreditCardApiLogRepository repository;
     private final MerchantRepository merchantRepository;
+    private final FranchiseRepository franchiseRepository;
 
-    public CreditCardApiLogService(CreditCardApiLogRepository repository, MerchantRepository merchantRepository) {
+    public CreditCardApiLogService(CreditCardApiLogRepository repository, MerchantRepository merchantRepository,
+                                   FranchiseRepository franchiseRepository) {
         this.repository = repository;
         this.merchantRepository = merchantRepository;
+        this.franchiseRepository = franchiseRepository;
     }
 
     /** Saves one log row. Never throws. */
@@ -41,8 +45,13 @@ public class CreditCardApiLogService {
                 entry.setCreatedAt(LocalDateTime.now());
             }
             if (entry.getMerchantName() == null && entry.getMerchantId() != null) {
-                merchantRepository.findById(entry.getMerchantId())
-                        .ifPresent(m -> entry.setMerchantName(m.getBusinessName()));
+                if (CustomerRef.FRANCHISE.equalsIgnoreCase(entry.getCustomerType())) {
+                    franchiseRepository.findById(entry.getMerchantId())
+                            .ifPresent(f -> entry.setMerchantName(f.getFranchiseName()));
+                } else {
+                    merchantRepository.findById(entry.getMerchantId())
+                            .ifPresent(m -> entry.setMerchantName(m.getBusinessName()));
+                }
             }
             repository.save(entry);
         } catch (Exception e) {
@@ -54,6 +63,12 @@ public class CreditCardApiLogService {
     /** Admin search; every filter is optional. Newest first. */
     public Page<CreditCardApiLog> search(String action, String outcome, Long merchantId, String requestId,
                                          LocalDateTime start, LocalDateTime end, Pageable pageable) {
+        return search(action, outcome, null, merchantId, requestId, start, end, pageable);
+    }
+
+    public Page<CreditCardApiLog> search(String action, String outcome, String customerType, Long merchantId,
+                                         String requestId, LocalDateTime start, LocalDateTime end,
+                                         Pageable pageable) {
 
         Specification<CreditCardApiLog> spec = (root, query, cb) -> {
             List<Predicate> p = new ArrayList<>();
@@ -62,6 +77,9 @@ public class CreditCardApiLogService {
             }
             if (outcome != null && !outcome.isBlank()) {
                 p.add(cb.equal(root.get("outcome"), outcome.trim().toUpperCase()));
+            }
+            if (customerType != null && !customerType.isBlank()) {
+                p.add(cb.equal(root.get("customerType"), customerType.trim().toUpperCase()));
             }
             if (merchantId != null) {
                 p.add(cb.equal(root.get("merchantId"), merchantId));
