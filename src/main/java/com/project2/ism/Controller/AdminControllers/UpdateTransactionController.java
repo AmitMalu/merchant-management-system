@@ -175,6 +175,96 @@ public class UpdateTransactionController {
         }
     }
 
+    /**
+     * A franchise's OWN payout transactions (franchise ledger), same shape as /merchant-report.
+     * franchiseId is optional (all franchises when missing).
+     *
+     * Example:
+     * /update-transaction/franchise-report
+     * ?startDate=2026-07-01T00:00:00&endDate=2026-07-15T23:59:59&status=PENDING&franchiseId=3
+     */
+    @GetMapping("/franchise-report")
+    public ResponseEntity<ApiResponse<
+            TransactionReportDTO.TransactionReportResponse>>
+    getFranchiseTransactionReport(
+
+            @RequestParam("startDate") String startDate,
+            @RequestParam("endDate") String endDate,
+
+            @RequestParam(value = "franchiseId", required = false)
+            Long franchiseId,
+
+            @RequestParam("status") String status,
+
+            @RequestParam(value = "page", defaultValue = "0")
+            @Min(0) Integer page,
+
+            @RequestParam(value = "size", defaultValue = "50")
+            @Min(1) @Max(1000) Integer size) {
+
+        logger.info(
+                "Received franchise payout report request. startDate={}, endDate={}, franchiseId={}, status={}, page={}, size={}",
+                startDate, endDate, franchiseId, status, page, size
+        );
+
+        ApiResponse<TransactionReportDTO.TransactionReportResponse>
+                apiResponse = new ApiResponse<>();
+
+        try {
+
+            TransactionReportDTO.TransactionReportResponse report =
+                    updateTransactionService.getFranchiseTransactionReport(
+                            LocalDateTime.parse(startDate),
+                            LocalDateTime.parse(endDate),
+                            franchiseId,
+                            status,
+                            page,
+                            size
+                    );
+
+            apiResponse.setSuccess(true);
+            apiResponse.setMessage("Franchise payout report fetched successfully");
+            apiResponse.setData(report);
+            apiResponse.setTimestamp(LocalDateTime.now());
+
+            return ResponseEntity.ok(apiResponse);
+
+        } catch (DateTimeParseException exception) {
+
+            apiResponse.setSuccess(false);
+            apiResponse.setMessage(
+                    "Invalid date format. Required format: yyyy-MM-dd'T'HH:mm:ss"
+            );
+            apiResponse.setTimestamp(LocalDateTime.now());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(apiResponse);
+
+        } catch (IllegalArgumentException exception) {
+
+            logger.warn("Invalid franchise payout report request: {}", exception.getMessage());
+
+            apiResponse.setSuccess(false);
+            apiResponse.setMessage(exception.getMessage());
+            apiResponse.setTimestamp(LocalDateTime.now());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(apiResponse);
+
+        } catch (Exception exception) {
+
+            logger.error("Error while fetching franchise payout report", exception);
+
+            apiResponse.setSuccess(false);
+            apiResponse.setMessage(
+                    "Failed to fetch franchise payout report: " + exception.getMessage()
+            );
+            apiResponse.setTimestamp(LocalDateTime.now());
+
+            return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(apiResponse);
+        }
+    }
+
     @PostMapping("/payout/status")
     public ResponseEntity<ApiResponse<ManualPayoutStatusUpdateResponse>>
     updatePayoutTransactionStatus(

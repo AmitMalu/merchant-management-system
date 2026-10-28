@@ -50,6 +50,7 @@ public class ManualPayoutTransactionProcessor {
         this.payoutService = payoutService;
     }
 
+    /** A merchant's payout: transactionId is the MERCHANT ledger id. */
     @Transactional(
             propagation = Propagation.REQUIRES_NEW,
             rollbackFor = Exception.class
@@ -59,18 +60,53 @@ public class ManualPayoutTransactionProcessor {
             ManualPayoutStatusUpdateRequest.ManualPayoutStatus requestedStatus,
             String remarks) {
 
+        return process(transactionId, false, requestedStatus, remarks);
+    }
+
+    /** A franchise's own payout: transactionId is the FRANCHISE ledger id. */
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            rollbackFor = Exception.class
+    )
+    public ManualPayoutUpdateResult processSingleFranchiseTransaction(
+            Long transactionId,
+            ManualPayoutStatusUpdateRequest.ManualPayoutStatus requestedStatus,
+            String remarks) {
+
+        return process(transactionId, true, requestedStatus, remarks);
+    }
+
+    /**
+     * The one processing path for both: only the way the payout is found differs. Runs inside
+     * the REQUIRES_NEW transaction of the public method that called it.
+     */
+    private ManualPayoutUpdateResult process(
+            Long transactionId,
+            boolean franchiseLedger,
+            ManualPayoutStatusUpdateRequest.ManualPayoutStatus requestedStatus,
+            String remarks) {
+
         log.info(
-                "Processing manual payout status update. transactionId={}, requestedStatus={}",
+                "Processing manual payout status update. transactionId={}, requestedStatus={}, ledger={}",
                 transactionId,
-                requestedStatus
+                requestedStatus,
+                franchiseLedger ? "FRANCHISE" : "MERCHANT"
         );
 
         PayoutTransaction payoutTransaction =
-                payoutTransactionRepository
-                        .findByIdForManualUpdate(transactionId)
+                (franchiseLedger
+                        ? payoutTransactionRepository.findByFranchiseLedgerIdForManualUpdate(transactionId)
+                        : payoutTransactionRepository.findByIdForManualUpdate(transactionId))
                         .orElseThrow(() -> new IllegalArgumentException(
                                 "Payout transaction not found: " + transactionId
                         ));
+
+        if (franchiseLedger
+                && !"FRANCHISE".equalsIgnoreCase(payoutTransaction.getInitiatorType())) {
+            throw new IllegalStateException(
+                    "Transaction " + transactionId + " is not a franchise payout"
+            );
+        }
 
         String previousStatus =
                 payoutTransaction.getStatus() != null

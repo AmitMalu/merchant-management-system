@@ -1,5 +1,6 @@
 package com.project2.ism.Controller;
 
+import com.project2.ism.Service.PaytmNotificationLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,10 +18,11 @@ import java.util.Set;
 /**
  * TEMPORARY endpoint for Paytm's notification (webhook) URL.
  *
- * Right now it only receives whatever Paytm sends, writes it to the log and
- * answers 200 "OK" straight away. Nothing is saved or processed yet; once we
- * have seen the real payload (and Paytm's source IPs / signature scheme) the
- * processing can be added, the same way as the Razorpay / Mosambee controllers.
+ * Right now it only receives whatever Paytm sends, writes it to the log, stores it in
+ * paytm_notification_logs (Admin > Logs > Paytm Notification Logs) and answers 200 "OK"
+ * straight away. Nothing is processed yet; once we have seen the real payload (and Paytm's
+ * source IPs / signature scheme) the processing can be added, the same way as the
+ * Razorpay / Mosambee controllers.
  *
  * URL to give Paytm: https://portal.utsabpay.com/api/paytm/notification
  */
@@ -35,6 +37,12 @@ public class PaytmNotificationController {
 
     // Never write credentials a caller might attach into the log.
     private static final Set<String> HIDDEN_HEADERS = Set.of("authorization", "cookie", "proxy-authorization");
+
+    private final PaytmNotificationLogService notificationLogService;
+
+    public PaytmNotificationController(PaytmNotificationLogService notificationLogService) {
+        this.notificationLogService = notificationLogService;
+    }
 
     @PostMapping("/notification")
     public ResponseEntity<String> receiveNotification(@RequestBody(required = false) String body,
@@ -52,8 +60,17 @@ public class PaytmNotificationController {
                 request.getContentType(),
                 body == null ? 0 : body.length(),
                 truncated ? " (truncated in log)" : "");
-        log.info("Paytm notification headers: {}", describeHeaders(request));
+        String headers = describeHeaders(request);
+        log.info("Paytm notification headers: {}", headers);
         log.info("Paytm notification body: {}", printableBody);
+
+        // Shown in the admin logs. Never throws: Paytm must always get its 200 back.
+        try {
+            notificationLogService.record(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"),
+                    request.getContentType(), headers, printableBody, body == null ? 0 : body.length(), truncated);
+        } catch (Exception e) {
+            log.error("Paytm notification could not be stored (still acknowledged): {}", e.getMessage(), e);
+        }
 
         return ResponseEntity.ok("OK");
     }

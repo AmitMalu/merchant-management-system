@@ -25,6 +25,26 @@ public interface FranchiseTransDetRepository extends JpaRepository<FranchiseTran
 
     Optional<FranchiseTransactionDetails> findByTransactionId(Long transactionId);
 
+    /**
+     * Admin "Update Transaction": a franchise's own PAYOUT ledger rows in one status (PENDING),
+     * for one franchise or for all of them (franchiseId null), newest first.
+     */
+    @Query(value = "SELECT f FROM FranchiseTransactionDetails f " +
+            "WHERE f.transactionDate BETWEEN :startDate AND :endDate " +
+            "AND (:franchiseId IS NULL OR f.franchise.id = :franchiseId) " +
+            "AND f.tranStatus = :status AND f.service = 'PAYOUT' " +
+            "ORDER BY f.transactionDate DESC",
+            countQuery = "SELECT COUNT(f) FROM FranchiseTransactionDetails f " +
+                    "WHERE f.transactionDate BETWEEN :startDate AND :endDate " +
+                    "AND (:franchiseId IS NULL OR f.franchise.id = :franchiseId) " +
+                    "AND f.tranStatus = :status AND f.service = 'PAYOUT'")
+    Page<FranchiseTransactionDetails> findPayoutsByStatus(
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate,
+            @Param("franchiseId") Long franchiseId,
+            @Param("status") String status,
+            Pageable pageable);
+
     Optional<FranchiseTransactionDetails> findByVendorTransactionId(String vendorTransactionId);
 
     Long countByTransactionDateBetween(LocalDateTime localDateTime, LocalDateTime localDateTime1);

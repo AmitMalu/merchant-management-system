@@ -3,6 +3,8 @@ package com.project2.ism.Service.AdminServices;
 import com.project2.ism.DTO.ReportDTO.MerchantTransactionReportDTO;
 import com.project2.ism.DTO.ReportDTO.TransactionReportDTO;
 import com.project2.ism.Helper.ManualPayoutTransactionProcessor;
+import com.project2.ism.Model.FranchiseTransactionDetails;
+import com.project2.ism.Repository.FranchiseTransDetRepository;
 import com.project2.ism.Repository.MerchantTransDetRepository;
 import com.project2.ism.request.ManualPayoutStatusUpdateRequest;
 import com.project2.ism.request.ManualPayoutUpdateResult;
@@ -27,16 +29,113 @@ public class UpdateTransactionService {
             LoggerFactory.getLogger(UpdateTransactionService.class);
 
     private final MerchantTransDetRepository merchantTransDetRepository;
+    private final FranchiseTransDetRepository franchiseTransDetRepository;
     private final ManualPayoutTransactionProcessor manualPayoutTransactionProcessor;
 
     public UpdateTransactionService(
             MerchantTransDetRepository merchantTransDetRepository,
+            FranchiseTransDetRepository franchiseTransDetRepository,
             ManualPayoutTransactionProcessor manualPayoutTransactionProcessor) {
 
         this.merchantTransDetRepository =
                 merchantTransDetRepository;
+        this.franchiseTransDetRepository =
+                franchiseTransDetRepository;
         this.manualPayoutTransactionProcessor =
                 manualPayoutTransactionProcessor;
+    }
+
+    /**
+     * A franchise's OWN payout rows (franchise ledger) in one status, in the same shape as the
+     * merchant report so the Update Transaction screen can show both. The franchise name is
+     * returned in merchantName. franchiseId null = all franchises.
+     */
+    public TransactionReportDTO.TransactionReportResponse
+    getFranchiseTransactionReport(
+            LocalDateTime startDate,
+            LocalDateTime endDate,
+            Long franchiseId,
+            String status,
+            Integer page,
+            Integer size) {
+
+        logger.info(
+                "Preparing franchise payout report. startDate={}, endDate={}, franchiseId={}, status={}, page={}, size={}",
+                startDate, endDate, franchiseId, status, page, size
+        );
+
+        validateMerchantReportRequest(startDate, endDate, status, page, size);
+
+        try {
+            Page<FranchiseTransactionDetails> rows =
+                    franchiseTransDetRepository.findPayoutsByStatus(
+                            startDate,
+                            endDate,
+                            franchiseId,
+                            status.trim(),
+                            PageRequest.of(page, size)
+                    );
+
+            List<MerchantTransactionReportDTO> transactions =
+                    rows.getContent().stream()
+                            .map(this::toReportRow)
+                            .toList();
+
+            TransactionReportDTO.TransactionReportResponse<
+                    MerchantTransactionReportDTO> response =
+                    new TransactionReportDTO.TransactionReportResponse<>();
+
+            response.setTransactions(transactions);
+            response.setSummary(null);
+            response.setReportGeneratedAt(LocalDateTime.now());
+            response.setReportType("PENDING_FRANCHISE_PAYOUT_REPORT");
+            response.setTotalPages(rows.getTotalPages());
+            response.setTotalElements(rows.getTotalElements());
+            response.setHasNext(rows.hasNext());
+            response.setHasPrevious(rows.hasPrevious());
+
+            return response;
+
+        } catch (Exception exception) {
+
+            logger.error(
+                    "Error while fetching franchise payout report. franchiseId={}, status={}",
+                    franchiseId, status, exception
+            );
+
+            throw new RuntimeException(
+                    "Failed to fetch franchise payout report: "
+                            + exception.getMessage(),
+                    exception
+            );
+        }
+    }
+
+    private MerchantTransactionReportDTO toReportRow(FranchiseTransactionDetails f) {
+        return new MerchantTransactionReportDTO(
+                f.getTransactionId(),
+                f.getVendorTransactionId(),
+                f.getActionOnBalance(),
+                f.getTransactionDate(),
+                f.getAmount(),
+                f.getUpdatedDateAndTimeOfTransaction(),
+                null,
+                null,
+                f.getNetAmount(),
+                f.getGrossCharge(),
+                null,
+                f.getCharge(),
+                null,
+                null,
+                null,
+                f.getFranchise() != null ? f.getFranchise().getFranchiseName() : null,
+                null,
+                f.getTranStatus(),
+                f.getService(),
+                f.getRemarks(),
+                f.getBalBeforeTran(),
+                f.getBalAfterTran()
+        );
     }
 
     public TransactionReportDTO.TransactionReportResponse
@@ -246,7 +345,14 @@ public class UpdateTransactionService {
                  * Therefore REQUIRES_NEW works correctly.
                  */
                 ManualPayoutUpdateResult result =
-                        manualPayoutTransactionProcessor
+                        request.isFranchiseAccount()
+                                ? manualPayoutTransactionProcessor
+                                .processSingleFranchiseTransaction(
+                                        transactionId,
+                                        request.getStatus(),
+                                        request.getRemarks()
+                                )
+                                : manualPayoutTransactionProcessor
                                 .processSingleTransaction(
                                         transactionId,
                                         request.getStatus(),
@@ -345,6 +451,12 @@ public class UpdateTransactionService {
         if (request.getStatus() == null) {
             throw new IllegalArgumentException(
                     "Status is required"
+            );
+        }
+
+        if (!request.hasValidAccountType()) {
+            throw new IllegalArgumentException(
+                    "accountType must be MERCHANT or FRANCHISE"
             );
         }
 

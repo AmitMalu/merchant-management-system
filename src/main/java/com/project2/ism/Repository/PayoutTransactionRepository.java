@@ -52,4 +52,20 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
             @Param("transactionId")
             Long payoutTransactionId
     );
+
+    /**
+     * Same as findByIdForManualUpdate, for a franchise's OWN payout: the id is the franchise
+     * ledger row (franchise_transaction_details), which is a different table (and numbering)
+     * from the merchant ledger.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p
+            FROM PayoutTransaction p
+            WHERE p.ledgerFranchiseTxnId = :transactionId
+            """)
+    Optional<PayoutTransaction> findByFranchiseLedgerIdForManualUpdate(
+            @Param("transactionId")
+            Long ledgerFranchiseTxnId
+    );
 }
