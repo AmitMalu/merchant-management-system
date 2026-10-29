@@ -108,6 +108,10 @@ public class SecurityConfig {
                         .requestMatchers("/reports/credit-card/**", "/reports/credit-card")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN", "MERCHANT", "FRANCHISE")
 
+                        // Admin > Other > Notification URL: where payment notifications are forwarded.
+                        .requestMatchers("/notification-callbacks/**", "/notification-callbacks")
+                        .hasAnyRole("ADMIN", "SUPER_ADMIN")
+
                         // Payout report for franchises (its own payouts + its merchants').
                         .requestMatchers("/reports/payout/franchise/**", "/reports/payout/franchise")
                         .hasRole("FRANCHISE")
