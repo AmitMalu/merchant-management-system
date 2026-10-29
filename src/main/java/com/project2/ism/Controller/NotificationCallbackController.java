@@ -1,7 +1,9 @@
 package com.project2.ism.Controller;
 
+import com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest;
 import com.project2.ism.DTO.NotificationCallbackDtos.CreateRequest;
 import com.project2.ism.DTO.NotificationCallbackDtos.UpdateRequest;
+import com.project2.ism.DTO.NotificationCallbackDtos.View;
 import com.project2.ism.Service.NotificationCallbackService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -52,6 +55,14 @@ public class NotificationCallbackController {
     @PostMapping
     public ResponseEntity<?> create(@RequestBody CreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(body(true, "Notification URL added", service.create(request, adminEmail())));
+    }
+
+    /** The same URL for several merchants at once. All or nothing. */
+    @PostMapping("/bulk")
+    public ResponseEntity<?> createMany(@RequestBody BulkCreateRequest request) {
+        List<View> created = service.createMany(request, adminEmail());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(body(true, created.size() + (created.size() == 1 ? " Notification URL added" : " Notification URLs added"), created));
     }
 
     @PutMapping("/{id}")

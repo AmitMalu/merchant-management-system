@@ -20,6 +20,13 @@ public final class NotificationCallbackDtos {
     public record CreateRequest(String type, Long franchiseId, Long merchantId, String callback) {
     }
 
+    /**
+     * Several merchants get the same URL in one go (type FRANCHISE_MERCHANT or DIRECT_MERCHANT).
+     * Each merchant still gets its own row. All or nothing: if any merchant fails a check, nothing is saved.
+     */
+    public record BulkCreateRequest(String type, Long franchiseId, java.util.List<Long> merchantIds, String callback) {
+    }
+
     /** Only the URL can be changed; to move a URL to another account, delete it and add it again. */
     public record UpdateRequest(String callback) {
     }

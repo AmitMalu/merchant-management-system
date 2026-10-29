@@ -1,5 +1,6 @@
 package com.project2.ism.Service;
 
+import com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest;
 import com.project2.ism.DTO.NotificationCallbackDtos.CreateRequest;
 import com.project2.ism.DTO.NotificationCallbackDtos.UpdateRequest;
 import com.project2.ism.DTO.NotificationCallbackDtos.View;
@@ -20,8 +21,10 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 import static com.project2.ism.DTO.NotificationCallbackDtos.DIRECT_MERCHANT;
@@ -45,6 +48,9 @@ public class NotificationCallbackService {
 
     /** The column is a plain varchar(255). */
     static final int MAX_URL_LENGTH = 255;
+
+    /** Most merchants that can be given the same URL in one go. */
+    static final int MAX_BULK = 200;
 
     private static final Pattern IPV4 = Pattern.compile("^\\d{1,3}(\\.\\d{1,3}){3}$");
 
@@ -121,22 +127,13 @@ public class NotificationCallbackService {
                 }
                 Merchant merchant = merchantRepository.findById(request.merchantId())
                         .orElseThrow(() -> new IllegalArgumentException("Merchant not found"));
-                Franchise owner = merchant.getFranchise();
 
-                if (FRANCHISE_MERCHANT.equals(type)) {
-                    if (owner == null) {
-                        throw new IllegalArgumentException(
-                                "This merchant does not belong to a franchise. Choose Direct Merchant instead.");
+                Problem problem = merchantProblem(type, request.franchiseId(), merchant);
+                if (problem != null) {
+                    if (problem.duplicate()) {
+                        throw conflict(problem.message());
                     }
-                    if (request.franchiseId() != null && !request.franchiseId().equals(owner.getId())) {
-                        throw new IllegalArgumentException("This merchant does not belong to the selected franchise");
-                    }
-                } else if (owner != null) {
-                    throw new IllegalArgumentException(
-                            "This merchant belongs to a franchise. Choose Franchise Merchant instead.");
-                }
-                if (repository.existsByMerchant_Id(merchant.getId())) {
-                    throw conflict("This merchant already has a notification URL. Edit or delete it instead.");
+                    throw new IllegalArgumentException(problem.message());
                 }
                 // only the merchant is stored (the franchise is implied by the merchant), so the
                 // existing franchise lookup never finds this row
@@ -154,6 +151,77 @@ public class NotificationCallbackService {
         log.info("Notification URL created | id={} | type={} | franchiseId={} | merchantId={} | url={} | by={}",
                 saved.getId(), type, request.franchiseId(), request.merchantId(), url, adminEmail);
         return toView(saved);
+    }
+
+    /**
+     * The same URL for several merchants (for example 3 of a franchise's 10) in one go. Each
+     * merchant gets its own row, exactly as if added one by one. All or nothing: every merchant
+     * is checked first, and if any fails (already has a URL, wrong franchise, ...) nothing is
+     * saved and the message says which merchants are the problem.
+     */
+    @Transactional
+    public List<View> createMany(BulkCreateRequest request, String adminEmail) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request is required");
+        }
+        String url = validateCallbackUrl(request.callback());
+        String type = request.type() == null ? "" : request.type().trim().toUpperCase(Locale.ROOT);
+        if (!FRANCHISE_MERCHANT.equals(type) && !DIRECT_MERCHANT.equals(type)) {
+            throw new IllegalArgumentException("Type must be FRANCHISE_MERCHANT or DIRECT_MERCHANT");
+        }
+
+        List<Long> ids = request.merchantIds() == null ? List.of()
+                : request.merchantIds().stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            throw new IllegalArgumentException("Please select at least one merchant");
+        }
+        if (ids.size() > MAX_BULK) {
+            throw new IllegalArgumentException("You can add at most " + MAX_BULK + " merchants at a time");
+        }
+
+        List<String> problems = new ArrayList<>();
+        boolean onlyDuplicates = true;
+        List<Merchant> accepted = new ArrayList<>();
+
+        for (Long id : ids) {
+            Merchant merchant = merchantRepository.findById(id).orElse(null);
+            if (merchant == null) {
+                problems.add("Merchant #" + id + ": not found");
+                onlyDuplicates = false;
+                continue;
+            }
+            Problem problem = merchantProblem(type, request.franchiseId(), merchant);
+            if (problem == null) {
+                accepted.add(merchant);
+            } else {
+                problems.add(merchant.getBusinessName() + ": " + problem.message());
+                onlyDuplicates &= problem.duplicate();
+            }
+        }
+
+        if (!problems.isEmpty()) {
+            String message = "Nothing was saved. " + String.join("; ", problems);
+            if (onlyDuplicates) {
+                throw conflict(message);
+            }
+            throw new IllegalArgumentException(message);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        List<FranchiseOrMerchantNotificationCallback> rows = new ArrayList<>();
+        for (Merchant merchant : accepted) {
+            FranchiseOrMerchantNotificationCallback row = new FranchiseOrMerchantNotificationCallback();
+            row.setCallback(url);
+            row.setMerchant(merchant);   // only the merchant, as for a single add
+            row.setCreatedAt(now);
+            row.setUpdatedAt(now);
+            rows.add(row);
+        }
+        List<View> views = repository.saveAll(rows).stream().map(this::toView).toList();
+
+        log.info("Notification URL created for {} merchants | type={} | merchantIds={} | url={} | by={}",
+                views.size(), type, ids, url, adminEmail);
+        return views;
     }
 
     // =====================================================================
@@ -192,6 +260,30 @@ public class NotificationCallbackService {
 
     private static ResponseStatusException conflict(String message) {
         return new ResponseStatusException(HttpStatus.CONFLICT, message);
+    }
+
+    /** Why a merchant cannot get a URL of this type; duplicate = it already has one. */
+    private record Problem(String message, boolean duplicate) {
+    }
+
+    /** The checks a merchant must pass for a FRANCHISE_MERCHANT / DIRECT_MERCHANT URL, or null when it passes. */
+    private Problem merchantProblem(String type, Long franchiseId, Merchant merchant) {
+        Franchise owner = merchant.getFranchise();
+
+        if (FRANCHISE_MERCHANT.equals(type)) {
+            if (owner == null) {
+                return new Problem("This merchant does not belong to a franchise. Choose Direct Merchant instead.", false);
+            }
+            if (franchiseId != null && !franchiseId.equals(owner.getId())) {
+                return new Problem("This merchant does not belong to the selected franchise", false);
+            }
+        } else if (owner != null) {
+            return new Problem("This merchant belongs to a franchise. Choose Franchise Merchant instead.", false);
+        }
+        if (repository.existsByMerchant_Id(merchant.getId())) {
+            return new Problem("This merchant already has a notification URL. Edit or delete it instead.", true);
+        }
+        return null;
     }
 
     /** What kind of account the row is for, and a warning for old rows that do not fit the rules. */
