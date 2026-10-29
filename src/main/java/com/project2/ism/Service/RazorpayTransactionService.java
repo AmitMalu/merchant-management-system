@@ -3,7 +3,6 @@ package com.project2.ism.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project2.ism.DTO.RazorPay.RazorpayNotificationDTO;
-import com.project2.ism.Model.InventoryTransactions.ProductSerialNumbers;
 import com.project2.ism.Model.Logs.FranchiseOrMerchantNotificationCallback;
 import com.project2.ism.Model.Logs.FranchiseOrMerchantNotificationLog;
 import com.project2.ism.Model.VendorTransactions;
@@ -37,9 +36,10 @@ public class RazorpayTransactionService {
     private final MerchantRepository merchantRepository;
     private final ProductSerialNumbersRepository productSerialNumbersRepository;
     private final RestTemplate restTemplate;
+    private final NotificationCallbackResolver notificationCallbackResolver;
 
 
-    public RazorpayTransactionService(VendorTransactionsRepository vendorTransactionsRepository, ObjectMapper mapper, RazorpayNotificationLogService razorpayNotificationLogService, InstantSettlementTrigger instantSettlementTrigger,  FranchiseOrMerchantNotificationCallbackRepository franchiseOrMerchantNotificationCallbackRepo, FranchiseOrMerchantNotificationLogRepository franchiseOrMerchantNotificationLogRepo, MerchantRepository merchantRepository, ProductSerialNumbersRepository productSerialNumbersRepository, RestTemplate restTemplate) {
+    public RazorpayTransactionService(VendorTransactionsRepository vendorTransactionsRepository, ObjectMapper mapper, RazorpayNotificationLogService razorpayNotificationLogService, InstantSettlementTrigger instantSettlementTrigger,  FranchiseOrMerchantNotificationCallbackRepository franchiseOrMerchantNotificationCallbackRepo, FranchiseOrMerchantNotificationLogRepository franchiseOrMerchantNotificationLogRepo, MerchantRepository merchantRepository, ProductSerialNumbersRepository productSerialNumbersRepository, RestTemplate restTemplate, NotificationCallbackResolver notificationCallbackResolver) {
         this.vendorTransactionsRepository = vendorTransactionsRepository;
         this.mapper = mapper;
         this.razorpayNotificationLogService = razorpayNotificationLogService;
@@ -49,6 +49,7 @@ public class RazorpayTransactionService {
         this.merchantRepository = merchantRepository;
         this.productSerialNumbersRepository = productSerialNumbersRepository;
         this.restTemplate = restTemplate;
+        this.notificationCallbackResolver = notificationCallbackResolver;
     }
 
 
@@ -258,43 +259,8 @@ public class RazorpayTransactionService {
 
         log.debug("Resolving callback for MID={}", mid);
 
-        ProductSerialNumbers psn = productSerialNumbersRepository
-                .findByMid(mid)
-                .orElse(null);
-
-        if (psn == null) {
-            log.warn("No ProductSerialNumbers found for MID={}", mid);
-            return null;
-        }
-
-        if (psn.getFranchise() != null) {
-            Long franchiseId = psn.getFranchise().getId();
-
-            log.debug("Franchise found for MID={}, franchiseId={}", mid, franchiseId);
-
-            return franchiseOrMerchantNotificationCallbackRepo
-                    .findByFranchise_Id(franchiseId)
-                    .orElseGet(() -> {
-                        log.warn("No callback configured for franchiseId={}", franchiseId);
-                        return null;
-                    });
-        }
-
-        if (psn.getMerchant() != null) {
-            Long merchantId = psn.getMerchant().getId();
-
-            log.debug("Merchant found for MID={}, merchantId={}", mid, merchantId);
-
-            return franchiseOrMerchantNotificationCallbackRepo
-                    .findByMerchant_Id(merchantId)
-                    .orElseGet(() -> {
-                        log.warn("No callback configured for merchantId={}", merchantId);
-                        return null;
-                    });
-        }
-
-        log.warn("ProductSerialNumbers has no franchise or merchant for MID={}", mid);
-        return null;
+        // merchant's own URL first, then the franchise's (see NotificationCallbackResolver)
+        return notificationCallbackResolver.resolveForMid(mid);
     }
 
 
