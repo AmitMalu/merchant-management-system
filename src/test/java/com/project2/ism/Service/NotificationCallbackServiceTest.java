@@ -47,6 +47,19 @@ class NotificationCallbackServiceTest {
             }
             return c;
         });
+        stubSaveAll();
+    }
+
+    private void stubSaveAll() {
+        when(repo.saveAll(any())).thenAnswer(i -> {
+            java.util.List<FranchiseOrMerchantNotificationCallback> rows = new java.util.ArrayList<>();
+            long next = 100;
+            for (FranchiseOrMerchantNotificationCallback c : (Iterable<FranchiseOrMerchantNotificationCallback>) i.getArgument(0)) {
+                c.setId(next++);
+                rows.add(c);
+            }
+            return rows;
+        });
     }
 
     private Franchise franchise(long id, String name) {
@@ -197,6 +210,128 @@ class NotificationCallbackServiceTest {
 
         verifyNoInteractions(franchiseRepo, merchantRepo);
         verify(repo, never()).save(any());
+    }
+
+    // ------------------------------------------------------------------ create for several merchants at once
+
+    @SuppressWarnings("unchecked")
+    private List<FranchiseOrMerchantNotificationCallback> savedMany() {
+        ArgumentCaptor<Iterable<FranchiseOrMerchantNotificationCallback>> c = ArgumentCaptor.forClass(Iterable.class);
+        verify(repo).saveAll(c.capture());
+        List<FranchiseOrMerchantNotificationCallback> out = new java.util.ArrayList<>();
+        c.getValue().forEach(out::add);
+        return out;
+    }
+
+    private com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest bulk(String type, Long franchiseId, Long... merchantIds) {
+        return new com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest(type, franchiseId, java.util.Arrays.asList(merchantIds), URL);
+    }
+
+    @Test
+    void severalFranchiseMerchants_getTheSameUrl_eachInItsOwnRow() {
+        Franchise f = franchise(3, "Sarthak");
+        merchant(1, "M1", f);
+        merchant(2, "M2", f);
+        merchant(3, "M3", f);
+
+        List<View> views = service.createMany(bulk("FRANCHISE_MERCHANT", 3L, 1L, 2L, 3L), "admin@x.com");
+
+        List<FranchiseOrMerchantNotificationCallback> rows = savedMany();
+        assertEquals(3, rows.size());
+        assertEquals(List.of(1L, 2L, 3L), rows.stream().map(r -> r.getMerchant().getId()).toList());
+        assertTrue(rows.stream().allMatch(r -> URL.equals(r.getCallback())));
+        assertTrue(rows.stream().allMatch(r -> r.getFranchise() == null));    // only the merchant, like a single add
+        assertEquals(3, views.size());
+        assertEquals("FRANCHISE_MERCHANT", views.get(0).type());
+        assertEquals("Sarthak", views.get(0).franchiseName());
+    }
+
+    @Test
+    void severalDirectMerchants_getTheSameUrl() {
+        merchant(8, "D1", null);
+        merchant(9, "D2", null);
+
+        List<View> views = service.createMany(bulk("DIRECT_MERCHANT", null, 8L, 9L), "a");
+
+        assertEquals(2, savedMany().size());
+        assertEquals("DIRECT_MERCHANT", views.get(0).type());
+    }
+
+    @Test
+    void duplicateIdsInTheRequest_areCountedOnce() {
+        Franchise f = franchise(3, "Sarthak");
+        merchant(1, "M1", f);
+
+        List<View> views = service.createMany(bulk("FRANCHISE_MERCHANT", 3L, 1L, 1L, null), "a");
+
+        assertEquals(1, views.size());
+    }
+
+    @Test
+    void oneMerchantAlreadyHavingAUrl_savesNothing_andNamesIt() {
+        Franchise f = franchise(3, "Sarthak");
+        merchant(1, "M1", f);
+        merchant(2, "Vaibhav", f);
+        merchant(3, "M3", f);
+        when(repo.existsByMerchant_Id(2L)).thenReturn(true);
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> service.createMany(bulk("FRANCHISE_MERCHANT", 3L, 1L, 2L, 3L), "a"));
+
+        assertEquals(HttpStatus.CONFLICT, e.getStatusCode());
+        assertTrue(e.getReason().startsWith("Nothing was saved."));
+        assertTrue(e.getReason().contains("Vaibhav"));
+        assertFalse(e.getReason().contains("M1"));
+        verify(repo, never()).saveAll(any());
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void anyOtherProblem_savesNothing_andListsEveryProblem() {
+        Franchise f3 = franchise(3, "Sarthak");
+        Franchise f4 = franchise(4, "Other");
+        merchant(1, "M1", f3);
+        merchant(2, "Stranger", f4);        // belongs to another franchise
+        merchant(5, "Direct Co", null);     // not a franchise merchant
+        when(repo.existsByMerchant_Id(1L)).thenReturn(true);   // and a plain duplicate too
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.createMany(bulk("FRANCHISE_MERCHANT", 3L, 1L, 2L, 5L, 77L), "a"));
+
+        String m = e.getMessage();
+        assertTrue(m.startsWith("Nothing was saved."));
+        assertTrue(m.contains("M1"));
+        assertTrue(m.contains("Stranger"));
+        assertTrue(m.contains("Direct Co"));
+        assertTrue(m.contains("#77"));
+        verify(repo, never()).saveAll(any());
+    }
+
+    @Test
+    void directType_refusesAFranchiseMerchant_inABatch() {
+        merchant(1, "M1", franchise(3, "Sarthak"));
+        merchant(8, "D1", null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.createMany(bulk("DIRECT_MERCHANT", null, 8L, 1L), "a"));
+        verify(repo, never()).saveAll(any());
+    }
+
+    @Test
+    void emptyTooBigOrWrongTypeRequests_areRefused_beforeAnyLookup() {
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(null, "a"));
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(bulk("FRANCHISE_MERCHANT", 3L), "a"));
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(
+                new com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest("FRANCHISE_MERCHANT", 3L, null, URL), "a"));
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(bulk("FRANCHISE", 3L, 1L), "a"));
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(bulk(null, 3L, 1L), "a"));
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(
+                new com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest("DIRECT_MERCHANT", null,
+                        java.util.stream.LongStream.rangeClosed(1, NotificationCallbackService.MAX_BULK + 1L).boxed().toList(), URL), "a"));
+        assertThrows(IllegalArgumentException.class, () -> service.createMany(
+                new com.project2.ism.DTO.NotificationCallbackDtos.BulkCreateRequest("DIRECT_MERCHANT", null, List.of(1L), "ftp://bad"), "a"));
+        verifyNoInteractions(merchantRepo);
+        verify(repo, never()).saveAll(any());
     }
 
     // ------------------------------------------------------------------ update / delete
