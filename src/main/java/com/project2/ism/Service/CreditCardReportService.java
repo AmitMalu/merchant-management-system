@@ -109,7 +109,7 @@ public class CreditCardReportService {
         cq.multiselect(
                 root.get("status"),
                 cb.count(root),
-                cb.sum(root.<BigDecimal>get("billAmount")),
+                cb.sum(cb.coalesce(root.<BigDecimal>get("paidAmount"), root.<BigDecimal>get("billAmount"))),
                 cb.sum(root.<BigDecimal>get("charges")),
                 cb.sum(root.<BigDecimal>get("totalDeducted")));
         cq.where(predicates(root, cq, cb, viewer, f).toArray(new Predicate[0]));
@@ -151,14 +151,15 @@ public class CreditCardReportService {
                 root.get("cardLast4"),          // 7
                 root.get("customerName"),       // 8  (card holder)
                 root.get("customerMobile"),     // 9
-                root.get("billAmount"),         // 10
+                cb.coalesce(root.<BigDecimal>get("paidAmount"), root.<BigDecimal>get("billAmount")),  // 10 (paid)
                 root.get("charges"),            // 11
                 root.get("totalDeducted"),      // 12
                 root.get("status"),             // 13
                 root.get("responseMessage"),    // 14
                 root.get("complaintTicketId"),  // 15
                 root.get("requestId"),          // 16
-                root.get("vendorTxnId"));       // 17
+                root.get("vendorTxnId"),        // 17
+                root.get("billAmount"));        // 18 (the bill that was due)
         cq.where(predicates(root, cq, cb, viewer, f).toArray(new Predicate[0]));
         cq.orderBy(cb.desc(root.get("paidAt")), cb.desc(root.get("id")));
 
@@ -222,7 +223,8 @@ public class CreditCardReportService {
                     t.get(14, String.class),
                     t.get(15, String.class),
                     viewer.admin() ? t.get(16, String.class) : null,
-                    viewer.admin() ? t.get(17, String.class) : null));
+                    viewer.admin() ? t.get(17, String.class) : null,
+                    t.get(18, BigDecimal.class)));
         }
         return rows;
     }

@@ -68,8 +68,14 @@ public class CreditCardBillTransaction {
     @Column(name = "due_date", length = 30)
     private String dueDate;
 
+    // The bill as fetched (the amount due).
     @Column(name = "bill_amount", precision = 15, scale = 2)
     private BigDecimal billAmount;
+
+    // What was actually paid: the whole bill, or a part of it when the customer chose a smaller
+    // amount. Empty on payments made before part-payment existed (they paid the whole bill).
+    @Column(name = "paid_amount", precision = 15, scale = 2)
+    private BigDecimal paidAmount;
 
     @Column(name = "charges", precision = 15, scale = 2)
     private BigDecimal charges;
@@ -163,6 +169,12 @@ public class CreditCardBillTransaction {
 
     public BigDecimal getBillAmount() { return billAmount; }
     public void setBillAmount(BigDecimal billAmount) { this.billAmount = billAmount; }
+
+    public BigDecimal getPaidAmount() { return paidAmount; }
+    public void setPaidAmount(BigDecimal paidAmount) { this.paidAmount = paidAmount; }
+
+    /** The amount that was (or is being) paid: paidAmount, else the whole bill. */
+    public BigDecimal effectiveAmount() { return paidAmount != null ? paidAmount : billAmount; }
 
     public BigDecimal getCharges() { return charges; }
     public void setCharges(BigDecimal charges) { this.charges = charges; }
