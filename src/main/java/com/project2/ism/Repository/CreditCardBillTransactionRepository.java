@@ -40,6 +40,13 @@ public interface CreditCardBillTransactionRepository extends JpaRepository<Credi
                                                   @Param("customerType") String customerType,
                                                   @Param("customerId") Long customerId);
 
+    /** Same as findByRequestIdForUpdate, without the lock (for a quote, which changes nothing). */
+    @Query("select t from CreditCardBillTransaction t where t.requestId = :requestId " +
+            "and t.customerType = :customerType and t.merchantId = :customerId")
+    Optional<CreditCardBillTransaction> findOwnedByRequestId(@Param("requestId") String requestId,
+                                                             @Param("customerType") String customerType,
+                                                             @Param("customerId") Long customerId);
+
     /** A bill for the same card that was fetched a moment ago and not paid yet (see fetch-bill reuse). */
     @Query("select t from CreditCardBillTransaction t where t.customerType = :customerType " +
             "and t.merchantId = :customerId and t.billerId = :billerId and t.cardLast4 = :cardLast4 " +
@@ -63,7 +70,7 @@ public interface CreditCardBillTransactionRepository extends JpaRepository<Credi
     @Query("select t from CreditCardBillTransaction t where t.customerType = :customerType " +
             "and t.merchantId = :customerId " +
             "and t.billerId = :billerId and t.cardLast4 = :cardLast4 " +
-            "and t.customerMobile = :mobile and t.billAmount = :amount " +
+            "and t.customerMobile = :mobile and coalesce(t.paidAmount, t.billAmount) = :amount " +
             "and t.status in :statuses and t.paidAt >= :since and t.id <> :excludeId " +
             "order by t.paidAt desc")
     List<CreditCardBillTransaction> findRecentSimilarPayments(

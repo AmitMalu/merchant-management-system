@@ -130,6 +130,17 @@ public class CreditCardBillService {
     @Value("${suivrepay.charge-required:true}")
     private boolean chargeRequired;
 
+    // Paying only a part of the bill (for example 1000 of 5000). SuivrePay has confirmed that their
+    // pay API accepts it (their written documentation only says the amount "must match" the bill).
+    // ON by default; set suivrepay.partial-payment-enabled=false to switch it off at once, after
+    // which only the full bill amount can be paid.
+    @Value("${suivrepay.partial-payment-enabled:true}")
+    private boolean partialPaymentEnabled = true;
+
+    // The smallest part-payment accepted.
+    @Value("${suivrepay.partial-min-amount:100}")
+    private BigDecimal partialMinAmount = new BigDecimal("100");
+
     private final SuivrePayClient client;
     private final CreditCardBillTransactionRepository repository;
     private final MerchantWalletRepository merchantWalletRepository;
@@ -311,7 +322,77 @@ public class CreditCardBillService {
                 amount,
                 charges,
                 amount.add(charges),
-                amount.compareTo(PAN_MANDATORY_FROM) >= 0);
+                amount.compareTo(PAN_MANDATORY_FROM) >= 0,
+                partialPaymentEnabled && amount.compareTo(partialMinAmount) > 0,
+                partialMinAmount);
+    }
+
+    /**
+     * What paying `amount` (or the whole bill when no amount is given) would cost: the charge and
+     * the total for the confirmation screen. Applies the same rules as paying, but changes nothing.
+     */
+    public Quote quote(CustomerRef who, QuoteRequest request) {
+        featureAccess.requireCreditCardEnabled(who);
+
+        if (request == null || isBlank(request.requestId())) {
+            throw new IllegalArgumentException("Please fetch the bill first.");
+        }
+        CreditCardBillTransaction t = repository.findOwnedByRequestId(request.requestId().trim(), who.type(), who.id())
+                .orElseThrow(() -> new IllegalArgumentException("Bill not found. Please fetch the bill again."));
+
+        if (t.getStatus() != Status.FETCHED) {
+            throw new IllegalArgumentException("This bill has already been processed.");
+        }
+        if (t.getFetchedAt() == null
+                || t.getFetchedAt().plusMinutes(BILL_VALID_MINUTES).isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("This bill has expired. Please fetch the bill again.");
+        }
+        BigDecimal due = t.getBillAmount() == null ? null : t.getBillAmount().setScale(2, RoundingMode.HALF_UP);
+        if (due == null || due.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Invalid bill amount. Please fetch the bill again.");
+        }
+
+        BigDecimal amount = resolveAmount(due, request.amount());
+        BigDecimal charges = calculateCharges(amount, who);
+        return new Quote(amount, charges, amount.add(charges), amount.compareTo(PAN_MANDATORY_FROM) >= 0);
+    }
+
+    /**
+     * The amount to pay now. Nothing asked for, or the whole bill asked for: the whole bill.
+     * Otherwise a part of it, which needs part-payment to be switched on, must be at least the
+     * minimum, less than the bill, and have at most 2 decimals. The bill's own amount always comes
+     * from the stored (fetched) bill, never from the browser.
+     */
+    private BigDecimal resolveAmount(BigDecimal due, BigDecimal requested) {
+        if (requested == null) {
+            return due;
+        }
+        if (requested.signum() <= 0) {
+            throw new IllegalArgumentException("Enter an amount greater than zero.");
+        }
+        if (requested.stripTrailingZeros().scale() > 2) {
+            throw new IllegalArgumentException("The amount can have at most 2 decimal places.");
+        }
+        BigDecimal amount = requested.setScale(2, RoundingMode.UNNECESSARY);
+
+        int compared = amount.compareTo(due);
+        if (compared > 0) {
+            throw new IllegalArgumentException(
+                    "The amount cannot be more than the bill amount of Rs. " + due.toPlainString() + ".");
+        }
+        if (compared == 0) {
+            return due; // the whole bill, however it was typed
+        }
+
+        if (!partialPaymentEnabled) {
+            throw new IllegalArgumentException(
+                    "Paying only a part of the bill is not available right now. Please pay the full bill amount.");
+        }
+        BigDecimal min = partialMinAmount.setScale(2, RoundingMode.HALF_UP);
+        if (amount.compareTo(min) < 0) {
+            throw new IllegalArgumentException("The minimum amount you can pay is Rs. " + min.toPlainString() + ".");
+        }
+        return amount;
     }
 
     // =====================================================================
@@ -342,7 +423,8 @@ public class CreditCardBillService {
             throw new IllegalArgumentException("Enter a valid PAN (for example ABCDE1234F).");
         }
 
-        log.info("Credit card pay requested | {} | requestId={} | panGiven={}", who.label(), requestId, pan != null);
+        log.info("Credit card pay requested | {} | requestId={} | panGiven={} | requestedAmount={}",
+                who.label(), requestId, pan != null, request.amount());
 
         // Fail before any money moves if SuivrePay is not configured.
         client.ensureConfigured();
@@ -350,7 +432,8 @@ public class CreditCardBillService {
 
         // ---- Step 1: debit + mark PENDING (committed before we call the vendor) ----
         final String panFinal = pan;
-        Prepared prepared = tx.execute(status -> prepareDebit(who, requestId, panFinal));
+        final BigDecimal requestedAmount = request.amount();
+        Prepared prepared = tx.execute(status -> prepareDebit(who, requestId, panFinal, requestedAmount));
 
         // ---- Step 2: call SuivrePay, outside any transaction ----
         VendorResponse response = null;
@@ -407,7 +490,7 @@ public class CreditCardBillService {
         }
     }
 
-    private Prepared prepareDebit(CustomerRef who, String requestId, String pan) {
+    private Prepared prepareDebit(CustomerRef who, String requestId, String pan, BigDecimal requestedAmount) {
 
         CreditCardBillTransaction t = repository.findByRequestIdForUpdate(requestId, who.type(), who.id())
                 .orElseThrow(() -> new IllegalArgumentException("Bill not found. Please fetch the bill again."));
@@ -421,10 +504,13 @@ public class CreditCardBillService {
             throw new IllegalArgumentException("This bill has expired. Please fetch the bill again.");
         }
 
-        BigDecimal amount = t.getBillAmount() == null ? null : t.getBillAmount().setScale(2, RoundingMode.HALF_UP);
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+        BigDecimal due = t.getBillAmount() == null ? null : t.getBillAmount().setScale(2, RoundingMode.HALF_UP);
+        if (due == null || due.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Invalid bill amount. Please fetch the bill again.");
         }
+
+        // the whole bill, or the part the customer chose (when that is switched on)
+        BigDecimal amount = resolveAmount(due, requestedAmount);
 
         if (amount.compareTo(PAN_MANDATORY_FROM) >= 0 && pan == null) {
             throw new IllegalArgumentException("PAN is mandatory for bill payments of Rs. 50,000 or more.");
@@ -441,6 +527,7 @@ public class CreditCardBillService {
 
         BigDecimal balanceAfterDebit = deductBalance(who, total);
 
+        t.setPaidAmount(amount);
         t.setCharges(charges);
         t.setTotalDeducted(total);
         t.setCustomerPan(pan);
@@ -455,8 +542,8 @@ public class CreditCardBillService {
         safeEvent(TransactionSourceType.CREDIT_CARD, t.getId(), who, total,
                 TransactionEventStatus.PENDING, "billerId=" + t.getBillerId());
 
-        log.info("Credit card payment started | {} | requestId={} | amount={} | charges={}",
-                who.label(), requestId, amount, charges);
+        log.info("Credit card payment started | {} | requestId={} | billDue={} | amount={} | charges={}",
+                who.label(), requestId, due, amount, charges);
 
         return new Prepared(t.getId(), requestId, amount, pan, charges, total,
                 t.getCardLast4(), t.getCustomerMobile(), t.getBillerId());
@@ -639,7 +726,7 @@ public class CreditCardBillService {
 
         VendorResponse response = client.post(raiseComplaintPath, body,
                 CallContext.of(CreditCardApiLog.RAISE_COMPLAINT, who, t.getBillerId(), t.getCardLast4(),
-                        t.getRequestId(), t.getBillAmount()));
+                        t.getRequestId(), t.effectiveAmount()));
 
         if (!isSuccess(response)) {
             throw vendorProblem(response, "raise-complaint");
@@ -670,7 +757,7 @@ public class CreditCardBillService {
 
         VendorResponse response = client.post(complaintStatusPath, Map.of("ticket_id", t.getComplaintTicketId()),
                 CallContext.of(CreditCardApiLog.COMPLAINT_STATUS, who, t.getBillerId(), t.getCardLast4(),
-                        t.getRequestId(), t.getBillAmount()));
+                        t.getRequestId(), t.effectiveAmount()));
 
         if (!isSuccess(response)) {
             throw vendorProblem(response, "complaint-status");
@@ -807,14 +894,14 @@ public class CreditCardBillService {
 
     private PaymentResult toResult(CreditCardBillTransaction t) {
         return new PaymentResult(t.getId(), t.getRequestId(), t.getStatus().name(), t.getResponseMessage(),
-                t.getBillAmount(), t.getCharges(), t.getTotalDeducted(), t.getWalletTxnId(), t.getVendorTxnId());
+                t.effectiveAmount(), t.getCharges(), t.getTotalDeducted(), t.getWalletTxnId(), t.getVendorTxnId());
     }
 
     private TransactionView toView(CreditCardBillTransaction t) {
         return new TransactionView(t.getId(), t.getRequestId(), t.getBillerName(), t.getCardLast4(),
-                t.getCustomerName(), t.getBillAmount(), t.getCharges(), t.getTotalDeducted(),
+                t.getCustomerName(), t.effectiveAmount(), t.getCharges(), t.getTotalDeducted(),
                 t.getStatus().name(), t.getResponseMessage(), t.getWalletTxnId(), t.getComplaintTicketId(),
-                t.getCreatedAt(), t.getCompletedAt());
+                t.getCreatedAt(), t.getCompletedAt(), t.getBillAmount());
     }
 
     private static String maskMobile(String m) {
@@ -906,7 +993,7 @@ public class CreditCardBillService {
         row.setActionOnBalance("DEBIT");
         row.setAmount(total.negate());
         row.setCharge(t.getCharges());
-        row.setNetAmount(t.getBillAmount().negate());
+        row.setNetAmount(t.effectiveAmount().negate());
         row.setBalBeforeTran(balanceAfterDebit.add(total));
         row.setBalAfterTran(balanceAfterDebit);
         row.setFinalBalance(balanceAfterDebit);

@@ -15,7 +15,21 @@ public final class CreditCardDtos {
     public record FetchBillRequest(String billerId, String cardLast4, String mobileNumber) {
     }
 
-    public record PayBillRequest(String requestId, String customerPan) {
+    /**
+     * amount is optional: missing means the whole bill. A smaller amount pays only a part of the
+     * bill, and is accepted only while part-payment is switched on.
+     */
+    public record PayBillRequest(String requestId, String customerPan, BigDecimal amount) {
+        public PayBillRequest(String requestId, String customerPan) {
+            this(requestId, customerPan, null);
+        }
+    }
+
+    /** "What would it cost to pay this amount?" (amount missing = the whole bill). Changes nothing. */
+    public record QuoteRequest(String requestId, BigDecimal amount) {
+    }
+
+    public record Quote(BigDecimal amount, BigDecimal charges, BigDecimal totalPayable, boolean panRequired) {
     }
 
     public record ComplaintRequest(String description) {
@@ -35,7 +49,9 @@ public final class CreditCardDtos {
                               BigDecimal billAmount,
                               BigDecimal charges,
                               BigDecimal totalPayable,
-                              boolean panRequired) {
+                              boolean panRequired,
+                              boolean partialAllowed,
+                              BigDecimal minPartialAmount) {
     }
 
     public record PaymentResult(Long transactionId,
@@ -62,7 +78,8 @@ public final class CreditCardDtos {
                                   String walletTxnId,
                                   String complaintTicketId,
                                   LocalDateTime createdAt,
-                                  LocalDateTime completedAt) {
+                                  LocalDateTime completedAt,
+                                  BigDecimal billDueAmount) {
     }
 
     /** One line of the credit card bill payment report. requestId / vendorTxnId are filled for admins only. */
@@ -85,7 +102,8 @@ public final class CreditCardDtos {
                             String message,
                             String complaintTicketId,
                             String requestId,
-                            String vendorTxnId) {
+                            String vendorTxnId,
+                            BigDecimal dueAmount) {
     }
 
     /** Counts are for every status; the money totals are for SUCCESS payments only. */

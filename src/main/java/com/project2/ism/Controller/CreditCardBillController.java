@@ -46,6 +46,12 @@ public class CreditCardBillController {
         return ok(service.fetchBill(callerIdentity.currentCustomer(), request));
     }
 
+    /** The charge and total for paying `amount` (or the whole bill), before the customer confirms. */
+    @PostMapping("/quote")
+    public ResponseEntity<?> quote(@RequestBody QuoteRequest request) {
+        return ok(service.quote(callerIdentity.currentCustomer(), request));
+    }
+
     @PostMapping("/pay")
     public ResponseEntity<?> pay(@RequestBody PayBillRequest request) {
         PaymentResult result = service.payBill(callerIdentity.currentCustomer(), request);
