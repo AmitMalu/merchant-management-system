@@ -98,6 +98,19 @@ public class SecurityConfig {
                         .requestMatchers("/admin-logs/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
 
+                        // Payment configuration: vendor credentials, vendors, charges, modes, products and
+                        // routing. Admin / super admin only. These used to fall through to "any logged-in
+                        // user", so a merchant or franchise could read and change vendor credentials and
+                        // charges. (Payouts themselves use /payment-payout/**, which is not affected.)
+                        .requestMatchers(
+                                "/payment-vendor-credentials", "/payment-vendor-credentials/**",
+                                "/payment-vendors", "/payment-vendors/**",
+                                "/payment-charges", "/payment-charges/**",
+                                "/payment-modes", "/payment-modes/**",
+                                "/payment-products", "/payment-products/**",
+                                "/payment-vendor-routing", "/payment-vendor-routing/**"
+                        ).hasAnyRole("ADMIN", "SUPER_ADMIN")
+
                         // Credit card bill payment: merchants and franchises (and only if admin has
                         // switched it on for the account, checked in the service).
                         .requestMatchers("/credit-card/**")
