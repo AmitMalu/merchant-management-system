@@ -69,11 +69,23 @@ public class PaymentVendorCredentialsService {
     }
 
 
-    // Get One
+    // Get One: the record the Edit form opens, with its keys and user ids filled in. Only this call
+    // returns them (the list, create and update responses do not), and the endpoint is admin-only
+    // (SecurityConfig).
     public VendorCredentialsResponseDTO getOne(Long id) {
         PaymentVendorCredentials vc = paymentVendorCredentialsRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Credentials not found"));
-        return toResponseDTO(vc);
+
+        VendorCredentialsResponseDTO dto = toResponseDTO(vc);
+        dto.setSecretKeyUat(vc.getSecretKeyUat());
+        dto.setSaltKeyUat(vc.getSaltKeyUat());
+        dto.setEncryptDecryptKeyUat(vc.getEncryptDecryptKeyUat());
+        dto.setUserIdUat(vc.getUserIdUat());
+        dto.setSecretKeyProd(vc.getSecretKeyProd());
+        dto.setSaltKeyProd(vc.getSaltKeyProd());
+        dto.setEncryptDecryptKeyProd(vc.getEncryptDecryptKeyProd());
+        dto.setUserIdProd(vc.getUserIdProd());
+        return dto;
     }
 
 

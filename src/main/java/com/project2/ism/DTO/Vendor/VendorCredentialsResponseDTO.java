@@ -1,5 +1,7 @@
 package com.project2.ism.DTO.Vendor;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.LocalDateTime;
 
 public class VendorCredentialsResponseDTO {
@@ -12,6 +14,25 @@ public class VendorCredentialsResponseDTO {
 
     private String baseUrlUat;
     private String baseUrlProd;
+
+    // Keys and user ids. Filled ONLY by the single-record call (GET /{id}) that the Edit form uses,
+    // never by the list, and left out of the JSON when empty.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String secretKeyUat;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String saltKeyUat;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String encryptDecryptKeyUat;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String userIdUat;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String secretKeyProd;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String saltKeyProd;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String encryptDecryptKeyProd;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String userIdProd;
 
     private String activeEnvironment;
     private Boolean isActive;
@@ -99,6 +120,30 @@ public class VendorCredentialsResponseDTO {
     public void setActiveEnvironment(String activeEnvironment) {
         this.activeEnvironment = activeEnvironment;
     }
+
+    public String getSecretKeyUat() { return secretKeyUat; }
+    public void setSecretKeyUat(String secretKeyUat) { this.secretKeyUat = secretKeyUat; }
+
+    public String getSaltKeyUat() { return saltKeyUat; }
+    public void setSaltKeyUat(String saltKeyUat) { this.saltKeyUat = saltKeyUat; }
+
+    public String getEncryptDecryptKeyUat() { return encryptDecryptKeyUat; }
+    public void setEncryptDecryptKeyUat(String encryptDecryptKeyUat) { this.encryptDecryptKeyUat = encryptDecryptKeyUat; }
+
+    public String getUserIdUat() { return userIdUat; }
+    public void setUserIdUat(String userIdUat) { this.userIdUat = userIdUat; }
+
+    public String getSecretKeyProd() { return secretKeyProd; }
+    public void setSecretKeyProd(String secretKeyProd) { this.secretKeyProd = secretKeyProd; }
+
+    public String getSaltKeyProd() { return saltKeyProd; }
+    public void setSaltKeyProd(String saltKeyProd) { this.saltKeyProd = saltKeyProd; }
+
+    public String getEncryptDecryptKeyProd() { return encryptDecryptKeyProd; }
+    public void setEncryptDecryptKeyProd(String encryptDecryptKeyProd) { this.encryptDecryptKeyProd = encryptDecryptKeyProd; }
+
+    public String getUserIdProd() { return userIdProd; }
+    public void setUserIdProd(String userIdProd) { this.userIdProd = userIdProd; }
 
     public Boolean getIsActive() {
         return isActive;
