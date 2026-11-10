@@ -1,6 +1,7 @@
 package com.project2.ism.DTO;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -21,10 +22,14 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class BillPaymentRequest {
 
-    @JsonIgnore
+    // Read from the website's request, but never written out: it must not go to Bill Avenue.
+    // (@JsonIgnore here also blocked reading it, so every payment arrived with no merchant.)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private Long merchantId;
 
     private String requestId;
+    // Our own reference for this payment, sent at the top level of the request (Bill Avenue: PaymentRefId).
+    private String paymentRefId;
     private String billerAdhoc;
     private String agentId;
 
@@ -48,6 +53,9 @@ public class BillPaymentRequest {
 
     public String getRequestId() { return requestId; }
     public void setRequestId(String requestId) { this.requestId = requestId; }
+
+    public String getPaymentRefId() { return paymentRefId; }
+    public void setPaymentRefId(String paymentRefId) { this.paymentRefId = paymentRefId; }
 
     public String getBillerAdhoc() { return billerAdhoc; }
     public void setBillerAdhoc(String billerAdhoc) { this.billerAdhoc = billerAdhoc; }

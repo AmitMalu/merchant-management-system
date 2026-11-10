@@ -50,7 +50,6 @@ import java.time.LocalDateTime;
 public class BbpsPaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(BbpsPaymentService.class);
-    private static final String BBPS_PAYMENT_MODE_CODE = "BBPS";
 
     private final PaymentVendorRepository paymentVendorRepository;
     private final BillAvenueConfigRepository billAvenueConfigRepository;
@@ -63,6 +62,22 @@ public class BbpsPaymentService {
     private final BbpsTransactionRepository bbpsTransactionRepository;
     private final ObjectMapper objectMapper;
     private final com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService;
+    private final com.project2.ism.util.BillAvenueAgentDevice agentDevice;
+
+    // When true (default) a bill payment is refused if no BBPS service charge is configured, so the
+    // platform never pays a bill for free by mistake. Switch off only for a deliberate zero-charge launch.
+    @org.springframework.beans.factory.annotation.Value("${bbps.charge-required:true}")
+    private boolean chargeRequired = true;
+
+    // How the CUSTOMER pays the agent, as Bill Avenue wants it. It is not our wallet: the wallet only
+    // funds the payment. For the AGT (agent) channel Bill Avenue accepts only "Cash"
+    // (spec v2.8.7, payment mode / channel table). Whatever the website sends is replaced by this.
+    @org.springframework.beans.factory.annotation.Value("${bill.avenue.agent.payment-mode:Cash}")
+    private String vendorPaymentMode = "Cash";
+
+    // The payment mode whose charge slab is used for bill payments (shared with the credit card charge).
+    @org.springframework.beans.factory.annotation.Value("${bbps.charge-mode-code:BBPS}")
+    private String chargeModeCode = "BBPS";
 
     public BbpsPaymentService(PaymentVendorRepository paymentVendorRepository,
                                BillAvenueConfigRepository billAvenueConfigRepository,
@@ -74,7 +89,9 @@ public class BbpsPaymentService {
                                MerchantTransDetRepository merchantTransDetRepository,
                                BbpsTransactionRepository bbpsTransactionRepository,
                                ObjectMapper objectMapper,
-                               com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService) {
+                               com.project2.ism.Service.Monitoring.TransactionEventService transactionEventService,
+                               com.project2.ism.util.BillAvenueAgentDevice agentDevice) {
+        this.agentDevice = agentDevice;
         this.paymentVendorRepository = paymentVendorRepository;
         this.billAvenueConfigRepository = billAvenueConfigRepository;
         this.billAvenueApiClient = billAvenueApiClient;
@@ -88,16 +105,41 @@ public class BbpsPaymentService {
         this.transactionEventService = transactionEventService;
     }
 
+    /**
+     * What a bill payment would take from the merchant's wallet, before it is made:
+     * bill amount + service charge (+ customer fee). Same charge rule as the payment itself, so the
+     * number shown is the number debited. Nothing is changed.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> quote(Long merchantId, BigDecimal billAmount, String custConvFeeText) {
+        if (merchantId == null) {
+            throw new IllegalArgumentException("Merchant is required");
+        }
+        if (billAmount == null || billAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Enter a valid amount");
+        }
+        BigDecimal custConvFee = parseCustConvFee(custConvFeeText);
+        BigDecimal charges = calculateCharges(billAmount, merchantId);
+
+        java.util.Map<String, Object> quote = new java.util.LinkedHashMap<>();
+        quote.put("amount", billAmount);
+        quote.put("custConvFee", custConvFee);
+        quote.put("charges", charges);
+        quote.put("totalDebit", billAmount.add(custConvFee).add(charges));
+        quote.put("paymentMode", vendorPaymentMode);
+        return quote;
+    }
+
     @Transactional
     public CommonResponse<Object> doBillPayment(BillPaymentRequest request) throws Exception {
 
         validateBillPaymentRequest(request);
+        request.getPaymentMethod().setPaymentMode(vendorPaymentMode);
 
         Long merchantId = request.getMerchantId();
         BigDecimal billAmount = request.getAmountInfo().getAmount();
-        BigDecimal custConvFee = request.getAmountInfo().getCustConvFee() != null
-                ? new BigDecimal(request.getAmountInfo().getCustConvFee())
-                : BigDecimal.ZERO;
+        requirePanForLargeCashPayment(request, billAmount);
+        BigDecimal custConvFee = parseCustConvFee(request.getAmountInfo().getCustConvFee());
 
         log.info("Starting BBPS bill payment | merchantId={} billerId={} amount={}",
                 merchantId, request.getBillerId(), billAmount);
@@ -112,8 +154,21 @@ public class BbpsPaymentService {
                 .findByProviderId(request.getBillerId())
                 .orElse(null);
 
-        // 3. Charges (BBPS commission) — optional; default to zero if not yet configured
-        BigDecimal charges = calculateChargesSafely(billAmount, merchantId);
+        // The payment must use the SAME request id as the bill fetch (Bill Avenue links them by it:
+        // "No fetch data found for given ref id" otherwise). One payment per fetch: a request id that
+        // was already used is refused here, before any money moves, which also stops a double click
+        // or a replay from paying the same fetched bill twice.
+        String requestId = (request.getRequestId() != null && !request.getRequestId().isBlank())
+                ? request.getRequestId().trim()
+                : BillAvenueIVGenerator.generate();
+        if (bbpsTransactionRepository.findByRequestId(requestId).isPresent()) {
+            throw new IllegalArgumentException(
+                    "This bill was already submitted. Please fetch the bill again to pay it.");
+        }
+
+        // 3. Charges (BBPS commission). Worked out before any money moves, so a missing
+        // configuration refuses the payment cleanly.
+        BigDecimal charges = calculateCharges(billAmount, merchantId);
 
         BigDecimal totalDeduction = billAmount.add(custConvFee).add(charges);
 
@@ -122,10 +177,6 @@ public class BbpsPaymentService {
         // money has moved yet, so letting it roll back the transaction and
         // propagate to the controller is correct.
         BigDecimal balanceAfterDebit = validateAndDeductMerchantBalance(merchantId, totalDeduction);
-
-        String requestId = (request.getRequestId() != null && !request.getRequestId().isBlank())
-                ? request.getRequestId()
-                : BillAvenueIVGenerator.generate();
 
         String consumerNumber = extractConsumerNumber(request);
 
@@ -204,7 +255,7 @@ public class BbpsPaymentService {
             log.warn("BBPS bill payment FAILED | merchantId={} requestId={} responseCode={} message={}",
                     merchantId, requestId, responseCode, errorMessage);
 
-            return CommonResponse.failedResponse(400, "Transaction Failed", vendorResponse);
+            return CommonResponse.failedResponse(400, "Transaction Failed: " + errorMessage, vendorResponse);
 
         } catch (Exception ex) {
             log.error("BBPS bill payment exception | merchantId={} requestId={} error={}",
@@ -228,13 +279,35 @@ public class BbpsPaymentService {
         }
     }
 
+    /**
+     * Status of one of the logged-in merchant's OWN bill payments, looked up by the Bill Avenue
+     * transaction id (TRANS_REF_ID). Searching by mobile number or for someone else's transaction is
+     * not allowed: the id must belong to a payment this merchant made.
+     */
     @Transactional(readOnly = true)
-    public Object fetchTransactionStatus(TransactionStatusRequest request) throws Exception {
+    public Object fetchTransactionStatus(TransactionStatusRequest request, Long merchantId) throws Exception {
 
-        if (request == null || request.getTrackingType() == null || request.getTrackingType().isBlank()
-                || request.getTrackingValue() == null || request.getTrackingValue().isBlank()) {
-            throw new IllegalArgumentException("trackingType and trackingValue are required");
+        if (request == null || request.getTrackingValue() == null || request.getTrackingValue().isBlank()) {
+            throw new IllegalArgumentException("Enter the transaction ID");
         }
+        if (request.getTrackingType() != null && !request.getTrackingType().isBlank()
+                && !"TRANS_REF_ID".equalsIgnoreCase(request.getTrackingType())) {
+            throw new IllegalArgumentException("Only search by transaction ID is supported");
+        }
+        if (merchantId == null) {
+            throw new IllegalArgumentException("Merchant is required");
+        }
+
+        // The same answer for "no such transaction" and "somebody else's transaction", so nobody
+        // can use this to find out which ids exist.
+        bbpsTransactionRepository.findByTxnRefId(request.getTrackingValue().trim())
+                .filter(t -> merchantId.equals(t.getMerchantId()))
+                .orElseThrow(() -> new IllegalArgumentException("No transaction found for that ID"));
+
+        request.setTrackingType("TRANS_REF_ID");
+        request.setTrackingValue(request.getTrackingValue().trim());
+        request.setFromDate(null);
+        request.setToDate(null);
 
         PaymentVendor vendor = paymentVendorRepository
                 .findByVendorNameAndStatus("Bill Avenue", true)
@@ -261,6 +334,26 @@ public class BbpsPaymentService {
 
     // ==================== VALIDATION & HELPERS ====================
 
+    private static final BigDecimal CASH_PAN_LIMIT = new BigDecimal("50000");
+    private static final java.util.regex.Pattern PAN_FORMAT = java.util.regex.Pattern.compile("^[A-Z]{5}[0-9]{4}[A-Z]$");
+
+    /**
+     * RBI rule passed on by Bill Avenue: a cash payment of Rs.50,000 or more must carry the customer's
+     * PAN. Checked here, before any money moves, so the merchant is told straight away.
+     */
+    private void requirePanForLargeCashPayment(BillPaymentRequest request, BigDecimal billAmount) {
+        if (billAmount.compareTo(CASH_PAN_LIMIT) < 0 || !"Cash".equalsIgnoreCase(vendorPaymentMode)) {
+            return;
+        }
+        String pan = request.getCustomerInfo() != null ? request.getCustomerInfo().getCustomerPan() : null;
+        pan = pan == null ? "" : pan.trim().toUpperCase();
+        if (!PAN_FORMAT.matcher(pan).matches()) {
+            throw new IllegalArgumentException(
+                    "The customer's PAN number is required for cash payments of Rs.50,000 or more");
+        }
+        request.getCustomerInfo().setCustomerPan(pan);
+    }
+
     private void validateBillPaymentRequest(BillPaymentRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("Request cannot be null");
@@ -281,6 +374,21 @@ public class BbpsPaymentService {
         }
     }
 
+    private void collectErrors(JsonNode node, java.util.List<String> out) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return;
+        }
+        if (node.isArray()) {
+            node.forEach(n -> collectErrors(n, out));
+        } else if (node.isObject()) {
+            String message = node.path("errorMessage").asText("");
+            if (!message.isBlank()) {
+                String code = node.path("errorCode").asText("");
+                out.add(code.isBlank() ? message : "[" + code + "] " + message);
+            }
+        }
+    }
+
     private String extractConsumerNumber(BillPaymentRequest request) {
         if (request.getInputParams() != null
                 && request.getInputParams().getInput() != null
@@ -290,11 +398,24 @@ public class BbpsPaymentService {
         return null;
     }
 
+    /**
+     * The reason Bill Avenue gave. It is not always shaped the same: errorInfo can be
+     * {"error":[{...}]} or [{"error":{...}}], and some answers carry vErrorRootVO.
+     */
     private String extractErrorMessage(JsonNode vendorResponse) {
-        JsonNode errors = vendorResponse.path("errorInfo").path("error");
-        if (errors.isArray() && errors.size() > 0) {
-            JsonNode first = errors.get(0);
-            return "[" + first.path("errorCode").asText("") + "] " + first.path("errorMessage").asText("");
+        java.util.List<String> reasons = new java.util.ArrayList<>();
+
+        JsonNode errorInfo = vendorResponse.path("errorInfo");
+        collectErrors(errorInfo.path("error"), reasons);
+        if (errorInfo.isArray()) {
+            for (JsonNode item : errorInfo) {
+                collectErrors(item.path("error"), reasons);
+            }
+        }
+        collectErrors(vendorResponse.path("vErrorRootVO").path("error"), reasons);
+
+        if (!reasons.isEmpty()) {
+            return String.join(" | ", reasons);
         }
         return vendorResponse.path("responseReason").asText(
                 "Biller error (code " + vendorResponse.path("responseCode").asText() + ")");
@@ -315,9 +436,9 @@ public class BbpsPaymentService {
         if (deviceInfo == null) {
             deviceInfo = new BillPaymentRequest.AgentDeviceInfo();
         }
-        deviceInfo.setIp("192.168.2.73");
-        deviceInfo.setInitChannel("INT");
-        deviceInfo.setMac("01-23-45-67-89-ab");
+        deviceInfo.setIp(agentDevice.ip());
+        deviceInfo.setInitChannel(agentDevice.channel());
+        deviceInfo.setMac(agentDevice.mac());
         request.setAgentDeviceInfo(deviceInfo);
 
         BillPaymentRequest.CustomerInfo customerInfo = request.getCustomerInfo();
@@ -332,6 +453,16 @@ public class BbpsPaymentService {
         if (request.getBillerAdhoc() == null) {
             request.setBillerAdhoc("false");
         }
+
+        // Remitter info, in the form of Bill Avenue's own UAT samples for the AGT channel with Cash:
+        //   "paymentRefId": "<our reference>"                       (top level of the request)
+        //   "paymentInfo": {"info": [{"infoName": "Payment Account Info", "infoValue": "Cash"}]}
+        // Set here, never taken from the website.
+        request.setPaymentRefId(requestId.length() > 27 ? requestId.substring(0, 27) : requestId);
+        String accountInfo = "Cash".equalsIgnoreCase(vendorPaymentMode) ? "Cash" : vendorPaymentMode;
+        BillPaymentRequest.PaymentInfo paymentInfo = new BillPaymentRequest.PaymentInfo();
+        paymentInfo.setInfo(java.util.List.of(remitterInfo("Payment Account Info", accountInfo)));
+        request.setPaymentInfo(paymentInfo);
 
         // Bill Avenue requires amounts in paise ("Any amount mentioned in the
         // API request/response are in paise" — spec section 3.0). Everywhere
@@ -355,6 +486,13 @@ public class BbpsPaymentService {
         return objectMapper.readTree(decryptedResponse);
     }
 
+    private BillPaymentRequest.PaymentInfo.Info remitterInfo(String name, String value) {
+        BillPaymentRequest.PaymentInfo.Info info = new BillPaymentRequest.PaymentInfo.Info();
+        info.setInfoName(name);
+        info.setInfoValue(value);
+        return info;
+    }
+
     /** Rupees -> whole-paise string, e.g. 923.00 -> "92300". */
     private String toPaise(BigDecimal rupees) {
         if (rupees == null) {
@@ -365,6 +503,23 @@ public class BbpsPaymentService {
                 .toPlainString();
     }
 
+    /** The convenience fee the customer pays: empty means none; it must be a number, not negative. */
+    private BigDecimal parseCustConvFee(String value) {
+        if (value == null || value.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal fee;
+        try {
+            fee = new BigDecimal(value.trim());
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("custConvFee must be a number");
+        }
+        if (fee.signum() < 0) {
+            throw new IllegalArgumentException("custConvFee cannot be negative");
+        }
+        return fee;
+    }
+
     private BigDecimal parseRupeeString(String rupeeString) {
         if (rupeeString == null || rupeeString.isBlank()) {
             return BigDecimal.ZERO;
@@ -373,17 +528,21 @@ public class BbpsPaymentService {
     }
 
     /**
-     * Best-effort BBPS commission lookup, reusing the same charge engine the
-     * Payout flow uses (PaymentMode "BBPS"). No admin-configured charge slab
-     * for BBPS yet means zero commission rather than a hard failure — this is
-     * a brand-new payment mode and shouldn't block payments while charges are
-     * still being set up.
+     * BBPS service charge, from the same charge engine the payout flow uses (payment mode "BBPS").
+     * If none is configured for this merchant / amount, the payment is refused (bbps.charge-required,
+     * on by default) instead of silently charging nothing. Nothing has been debited at this point.
      */
-    private BigDecimal calculateChargesSafely(BigDecimal amount, Long merchantId) {
+    private BigDecimal calculateCharges(BigDecimal amount, Long merchantId) {
         try {
-            return paymentChargeService.calculateCharges(amount, BBPS_PAYMENT_MODE_CODE, merchantId);
+            return paymentChargeService.calculateCharges(amount, chargeModeCode, merchantId);
         } catch (Exception ex) {
-            log.warn("No BBPS charge configuration found (merchantId={}) — defaulting to zero commission: {}",
+            if (chargeRequired) {
+                log.error("No BBPS charge configuration (merchantId={} amount={}) - payment refused: {}",
+                        merchantId, amount, ex.getMessage());
+                throw new IllegalStateException(
+                        "Service charges for bill payment are not configured. Please contact the administrator.");
+            }
+            log.warn("No BBPS charge configuration found (merchantId={}) - using zero commission: {}",
                     merchantId, ex.getMessage());
             return BigDecimal.ZERO;
         }

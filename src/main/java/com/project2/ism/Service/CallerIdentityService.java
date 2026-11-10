@@ -82,6 +82,19 @@ public class CallerIdentityService {
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only merchants can use this feature");
     }
 
+    /** The logged-in merchant's id, or null for anyone else (admin, system, not logged in). Never throws. */
+    public Long currentMerchantIdOrNull() {
+        try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getName() != null && hasRole(auth, "ROLE_MERCHANT")) {
+                return merchantRepository.findByContactPerson_Email(auth.getName()).map(m -> m.getId()).orElse(null);
+            }
+        } catch (Exception e) {
+            log.debug("Could not work out the logged-in merchant: {}", e.getMessage());
+        }
+        return null;
+    }
+
     /**
      * The logged-in merchant or franchise (type + id), taken only from the verified JWT.
      * 403 for any other role.

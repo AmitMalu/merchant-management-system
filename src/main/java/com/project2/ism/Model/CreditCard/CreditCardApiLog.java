@@ -28,7 +28,12 @@ public class CreditCardApiLog {
     public static final String PAY_BILL = "PAY_BILL";
     public static final String RAISE_COMPLAINT = "RAISE_COMPLAINT";
     public static final String COMPLAINT_STATUS = "COMPLAINT_STATUS";
+    public static final String TXN_STATUS = "TXN_STATUS";
     public static final String UNKNOWN_ACTION = "UNKNOWN";
+
+    /** Which vendor the call went to. Older rows (SuivrePay only) get SUIVREPAY from the column default. */
+    public static final String VENDOR_SUIVREPAY = "SUIVREPAY";
+    public static final String VENDOR_BILL_AVENUE = "BILLAVENUE";
 
     /** SuivrePay answered with success. */
     public static final String OUTCOME_SUCCESS = "SUCCESS";
@@ -45,6 +50,9 @@ public class CreditCardApiLog {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "vendor", length = 20, columnDefinition = "varchar(20) default 'SUIVREPAY'")
+    private String vendor = VENDOR_SUIVREPAY;
 
     @Column(name = "call_id", length = 20)
     private String callId;
@@ -117,6 +125,9 @@ public class CreditCardApiLog {
 
     public String getCallId() { return callId; }
     public void setCallId(String callId) { this.callId = callId; }
+
+    public String getVendor() { return vendor; }
+    public void setVendor(String vendor) { this.vendor = vendor; }
 
     public String getCustomerType() { return customerType; }
     public void setCustomerType(String customerType) { this.customerType = customerType; }

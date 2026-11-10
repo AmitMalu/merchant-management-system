@@ -58,7 +58,8 @@ class PaymentConfigAccessTest {
             "/payment-charges", "/payment-charges/stats", "/payment-charges/5",
             "/payment-modes", "/payment-modes/5",
             "/payment-products", "/payment-products/id-name",
-            "/payment-vendor-routing", "/payment-vendor-routing/5");
+            "/payment-vendor-routing", "/payment-vendor-routing/5",
+            "/billpay/config/sync-billers");
 
     private static final List<HttpMethod> METHODS = List.of(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE);
 

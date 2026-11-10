@@ -47,5 +47,7 @@ public interface BillAvenueConfigRepository extends JpaRepository<BillAvenueConf
 
     List<BillAvenueConfig> findByProviderIdIn(List<String> providerIds);
 
+    List<BillAvenueConfig> findByPaymentVendor_Id(Long vendorId);
+
 }
 

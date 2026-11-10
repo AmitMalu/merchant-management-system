@@ -43,15 +43,18 @@ public class BillPayConfigService {
     private final BillAvenueApiClient billAvenueApiClient;
     private final ObjectMapper objectMapper;
     private final PaymentVendorCredentialsService credentialsService;
+    private final com.project2.ism.util.BillAvenueAgentDevice agentDevice;
 
     public BillPayConfigService(BillAvenueConfigRepository billAvenueConfigRepository,
                                 PaymentVendorRepository paymentVendorRepository, BillAvenueApiClient billAvenueApiClient,
-                                ObjectMapper objectMapper, PaymentVendorCredentialsService credentialsService) {
+                                ObjectMapper objectMapper, PaymentVendorCredentialsService credentialsService,
+                                com.project2.ism.util.BillAvenueAgentDevice agentDevice) {
         this.billAvenueConfigRepository = billAvenueConfigRepository;
         this.paymentVendorRepository = paymentVendorRepository;
         this.billAvenueApiClient = billAvenueApiClient;
         this.objectMapper = objectMapper;
         this.credentialsService = credentialsService;
+        this.agentDevice = agentDevice;
     }
 
     // Per the Bharat Connect reviewer's brand-guideline feedback, only these
@@ -533,13 +536,10 @@ public class BillPayConfigService {
             // ================================
             ObjectMapper mapper = new ObjectMapper();
 
-            // Set Agent ID (UAT/Live based on environment)
+            // Agent ID comes from the credentials of the active environment (UAT or PROD)
             log.debug("Setting Agent ID...");
-            // UAT
             assert request != null;
             request.setAgentId(credentials.secretKey());
-            // Live
-            // request.setAgentId("CC01RP98AGTBAK020158");
             log.info("Agent ID set to: {}", request.getAgentId());
 
             // ================================
@@ -553,9 +553,9 @@ public class BillPayConfigService {
                 deviceInfo = new BillerFetchRequestDTO.AgentDeviceInfo();
             }
 
-            deviceInfo.setIp("192.168.2.73");
-            deviceInfo.setInitChannel("INT");
-            deviceInfo.setMac("01-23-45-67-89-ab");
+            deviceInfo.setIp(agentDevice.ip());
+            deviceInfo.setInitChannel(agentDevice.channel());
+            deviceInfo.setMac(agentDevice.mac());
             request.setAgentDeviceInfo(deviceInfo);
 
             log.info("Agent Device Info - IP: {}, Channel: {}, MAC: {}",
@@ -787,6 +787,9 @@ public class BillPayConfigService {
 
             log.info("Vendor response log saved successfully");
 
+            billAvenueApiClient.logCreditCardCall("BILL_FETCH", requestId, requestJson, 200, responseJson,
+                    java.time.Duration.between(requestTime, LocalDateTime.now()).toMillis());
+
             // ================================
             // STEP 16: RETURN RESPONSE
             // ================================
@@ -833,6 +836,9 @@ public class BillPayConfigService {
                 );
 
                 log.info("Vendor response log saved for failure");
+
+                billAvenueApiClient.logCreditCardCall("BILL_FETCH", requestId, requestJson, 500, e.getMessage(),
+                        java.time.Duration.between(requestTime, LocalDateTime.now()).toMillis());
 
             } catch (Exception logException) {
                 log.error("Failed to save vendor log: {}", logException.getMessage());

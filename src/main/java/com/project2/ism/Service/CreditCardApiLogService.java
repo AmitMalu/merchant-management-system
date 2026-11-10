@@ -69,6 +69,12 @@ public class CreditCardApiLogService {
     public Page<CreditCardApiLog> search(String action, String outcome, String customerType, Long merchantId,
                                          String requestId, LocalDateTime start, LocalDateTime end,
                                          Pageable pageable) {
+        return search(action, outcome, customerType, null, merchantId, requestId, start, end, pageable);
+    }
+
+    public Page<CreditCardApiLog> search(String action, String outcome, String customerType, String vendor,
+                                         Long merchantId, String requestId, LocalDateTime start, LocalDateTime end,
+                                         Pageable pageable) {
 
         Specification<CreditCardApiLog> spec = (root, query, cb) -> {
             List<Predicate> p = new ArrayList<>();
@@ -77,6 +83,9 @@ public class CreditCardApiLogService {
             }
             if (outcome != null && !outcome.isBlank()) {
                 p.add(cb.equal(root.get("outcome"), outcome.trim().toUpperCase()));
+            }
+            if (vendor != null && !vendor.isBlank()) {
+                p.add(cb.equal(root.get("vendor"), vendor.trim().toUpperCase()));
             }
             if (customerType != null && !customerType.isBlank()) {
                 p.add(cb.equal(root.get("customerType"), customerType.trim().toUpperCase()));

@@ -9,7 +9,6 @@ import com.project2.ism.DTO.BillAvenueCredentials;
 import com.project2.ism.Enum.BillAvenueApiType;
 import com.project2.ism.Helper.BillAvenueIVGenerator;
 import com.project2.ism.Model.Payment.PaymentVendorResponseLog;
-import com.project2.ism.Repository.PaymentVendorResponseLogRepository;
 import com.project2.ism.Service.PaymentVendorCredentialsService;
 
 import com.project2.ism.WebConfig.BillAvenuceProperties;
@@ -38,26 +37,35 @@ public class BillAvenueApiClient {
     @Value("${bill.avenue.path.txn.status.api}")
     private String transactionStatusPath;
 
+    @Value("${bill.avenue.path.complaint.register.api:/extComplaints/register/json}")
+    private String complaintRegisterPath;
+
+    @Value("${bill.avenue.path.complaint.track.api:/extComplaints/track/json}")
+    private String complaintTrackPath;
+
     private static final Logger log =
             LoggerFactory.getLogger(BillAvenueApiClient.class);
 
     private final RestTemplate restTemplate;
     private final PaymentVendorCredentialsService credentialsService;
     private final BillAvenuceProperties properties;
-    private final PaymentVendorResponseLogRepository paymentVendorResponseLogRepository;
+    private final VendorResponseLogWriter logWriter;
+    private final com.project2.ism.Service.BillAvenueCreditCardLogService creditCardLog;
     private final ObjectMapper objectMapper;
 
     public BillAvenueApiClient(
             RestTemplate restTemplate,
             PaymentVendorCredentialsService credentialsService,
             BillAvenuceProperties properties,
-            PaymentVendorResponseLogRepository paymentVendorResponseLogRepository,
+            VendorResponseLogWriter logWriter,
+            com.project2.ism.Service.BillAvenueCreditCardLogService creditCardLog,
             ObjectMapper objectMapper) {
 
         this.restTemplate = restTemplate;
         this.credentialsService = credentialsService;
         this.properties = properties;
-        this.paymentVendorResponseLogRepository = paymentVendorResponseLogRepository;
+        this.logWriter = logWriter;
+        this.creditCardLog = creditCardLog;
         this.objectMapper = objectMapper;
     }
 
@@ -67,6 +75,8 @@ public class BillAvenueApiClient {
             String requestId,
             String requestJson
     ) throws Exception {
+
+        final long callStarted = System.currentTimeMillis();
 
         log.info(
                 "Bill Avenue API call started. vendorId={}, apiType={}, requestId={}",
@@ -135,6 +145,7 @@ public class BillAvenueApiClient {
         String decryptedResponse = null;
 
         int statusCode = 500;
+        boolean creditCardLogged = false;
 
         try {
 
@@ -241,6 +252,9 @@ public class BillAvenueApiClient {
 
                     // Save the log with the error message
                     saveLog(vendorId, apiType.name(), requestJson, encryptedRequest, encryptedResponse, statusCode, "ERROR: " + errorMessage);
+                    creditCardLog.record(apiType.name(), requestId, requestJson, statusCode, encryptedResponse,
+                            System.currentTimeMillis() - callStarted);
+                    creditCardLogged = true;
                     throw new RuntimeException(String.format("Bill Avenue API error. Code: %s, Message: %s", errorCode, errorMessage));
                 } catch (Exception e) {
                     // If parsing fails, throw a generic error
@@ -278,6 +292,9 @@ public class BillAvenueApiClient {
                     decryptedResponse
             );
 
+            creditCardLog.record(apiType.name(), requestId, requestJson, statusCode, decryptedResponse,
+                    System.currentTimeMillis() - callStarted);
+
             log.info(
                     "Bill Avenue API call completed successfully. vendorId={}, apiType={}, requestId={}, statusCode={}",
                     vendorId,
@@ -299,6 +316,12 @@ public class BillAvenueApiClient {
                     e.getMessage(),
                     e
             );
+
+            if (!creditCardLogged) {
+                creditCardLog.record(apiType.name(), requestId, requestJson, statusCode,
+                        decryptedResponse != null ? decryptedResponse : e.getMessage(),
+                        System.currentTimeMillis() - callStarted);
+            }
 
             // -----------------------------------------
             // 7. FAILURE vendor log
@@ -331,6 +354,8 @@ public class BillAvenueApiClient {
             case BILLER_FETCH -> billerFetchPath;
             case BILL_PAYMENT -> billPaymentPath;
             case TRANSACTION_STATUS -> transactionStatusPath;
+            case COMPLAINT_REGISTER -> complaintRegisterPath;
+            case COMPLAINT_TRACK -> complaintTrackPath;
 
             default -> {
                 log.error(
@@ -365,6 +390,22 @@ public class BillAvenueApiClient {
                 .toUriString();
     }
 
+    static final int MAX_LOGGED_CHARS = 15000;
+
+    static String clip(String value) {
+        if (value == null || value.length() <= MAX_LOGGED_CHARS) {
+            return value;
+        }
+        return value.substring(0, MAX_LOGGED_CHARS)
+                + "...[shortened, " + (value.length() - MAX_LOGGED_CHARS) + " more characters]";
+    }
+
+    /** For callers that make their own Bill Avenue call (the bill fetch): one row in the CCBP admin log. */
+    public void logCreditCardCall(String apiName, String requestId, String requestJson, Integer httpStatus,
+                                  String answer, Long timeTakenMs) {
+        creditCardLog.record(apiName, requestId, requestJson, httpStatus, answer, timeTakenMs);
+    }
+
     public void saveLog(
             Long vendorId,
             String apiName,
@@ -375,6 +416,13 @@ public class BillAvenueApiClient {
             String decryptedResponse) {
 
         try {
+
+            // The log columns are TEXT (about 64 KB). A very large answer (the full biller list is
+            // megabytes) must not make the log insert fail, so long values are shortened.
+            requestPayload = clip(requestPayload);
+            encryptedRequest = clip(encryptedRequest);
+            encryptedResponse = clip(encryptedResponse);
+            decryptedResponse = clip(decryptedResponse);
 
             PaymentVendorResponseLog logEntry =
                     new PaymentVendorResponseLog();
@@ -413,9 +461,8 @@ public class BillAvenueApiClient {
                     LocalDateTime.now()
             );
 
-            paymentVendorResponseLogRepository.save(
-                    logEntry
-            );
+            // own transaction: a log problem must never affect the request that wrote it
+            logWriter.write(logEntry);
 
         } catch (Exception e) {
 

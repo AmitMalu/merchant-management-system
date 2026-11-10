@@ -18,6 +18,10 @@ public interface BbpsTransactionRepository extends JpaRepository<BbpsTransaction
 
     List<BbpsTransaction> findByMerchantIdOrderByCreatedAtDesc(Long merchantId);
 
+    // The merchant's own latest successful payments (they have a Bill Avenue transaction id)
+    List<BbpsTransaction> findTop50ByMerchantIdAndStatusAndTxnRefIdIsNotNullOrderByCreatedAtDesc(
+            Long merchantId, BbpsTransaction.BbpsStatus status);
+
     // Used by the Transaction Monitoring stuck-pending sweep
     List<BbpsTransaction> findByStatusAndCreatedAtBefore(
             BbpsTransaction.BbpsStatus status, LocalDateTime cutoffTime);
