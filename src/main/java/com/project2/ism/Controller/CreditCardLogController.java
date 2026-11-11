@@ -59,7 +59,10 @@ public class CreditCardLogController {
         return ResponseEntity.ok(search(null, vendor, page, size, status, customerType, merchantId, requestId, start, end));
     }
 
-    /** Same, for one kind of call: FETCH_BILLERS, FETCH_BILL, PAY_BILL, RAISE_COMPLAINT, COMPLAINT_STATUS. */
+    /**
+     * Same, for one kind of call: FETCH_BILLERS, FETCH_BILL, PAY_BILL, RAISE_COMPLAINT, COMPLAINT_STATUS,
+     * TXN_STATUS. Optionally for one vendor only (vendor=BILLAVENUE or SUIVREPAY; empty / all = both).
+     */
     @GetMapping("/action/{action}")
     public ResponseEntity<Page<CreditCardApiLog>> byAction(
             @PathVariable String action,
@@ -69,9 +72,10 @@ public class CreditCardLogController {
             @RequestParam(required = false) String customerType,
             @RequestParam(required = false) Long merchantId,
             @RequestParam(required = false) String requestId,
+            @RequestParam(required = false) String vendor,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
-        return ResponseEntity.ok(search(action, null, page, size, status, customerType, merchantId, requestId, start, end));
+        return ResponseEntity.ok(search(action, vendor, page, size, status, customerType, merchantId, requestId, start, end));
     }
 
     private Page<CreditCardApiLog> search(String action, String vendor, int page, int size, String status,
@@ -79,8 +83,9 @@ public class CreditCardLogController {
                                           LocalDate start, LocalDate end) {
         // The dashboard sends status=all for "no filter".
         String outcome = (status == null || "all".equalsIgnoreCase(status)) ? null : status;
+        String vendorFilter = (vendor == null || vendor.isBlank() || "all".equalsIgnoreCase(vendor)) ? null : vendor;
 
-        return logService.search(action, outcome, customerType, vendor, merchantId, requestId,
+        return logService.search(action, outcome, customerType, vendorFilter, merchantId, requestId,
                 start != null ? start.atStartOfDay() : null,
                 end != null ? end.atTime(23, 59, 59) : null,
                 PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE)));

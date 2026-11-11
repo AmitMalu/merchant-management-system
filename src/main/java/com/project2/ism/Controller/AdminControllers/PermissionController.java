@@ -85,6 +85,19 @@ public class PermissionController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Adds every sidebar module / menu permission that is missing, so an admin can give it to others.
+     * Never changes or removes an existing permission.
+     */
+    @PostMapping("/sync-defaults")
+    public ResponseEntity<java.util.Map<String, Object>> addMissingDefaultPermissions() {
+        java.util.List<String> added = permissionService.addMissingDefaultPermissions();
+        java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("added", added);
+        result.put("addedCount", added.size());
+        return ResponseEntity.ok(result);
+    }
+
 //    @PostMapping("/initialize")
 //    public ResponseEntity<String> initializePredefinedPermissions() {
 //        permissionService.initializePredefinedPermissions();

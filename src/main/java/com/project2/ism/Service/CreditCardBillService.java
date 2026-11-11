@@ -122,7 +122,7 @@ public class CreditCardBillService {
     // Our service charge comes from Payment Charges (admin screen). The charge is set on a payment
     // MODE; this is the list of mode codes that mean "credit card bill payment". The first code that
     // exists is used. Add the code here (comma separated) if the mode was created with another name.
-    @Value("${suivrepay.charge-mode-codes:CCBP,CREDIT_CARD,CREDIT_CARD_BILL,CREDIT_CARD_BILL_PAYMENT,CC_BILL,CCBILL,CREDIT CARD,CREDITCARD}")
+    @Value("${suivrepay.charge-mode-codes:SUIVREPAY_CREDIT_CARD,CCBP,CREDIT_CARD,CREDIT_CARD_BILL,CREDIT_CARD_BILL_PAYMENT,CC_BILL,CCBILL,CREDIT CARD,CREDITCARD}")
     private String chargeModeCodes;
 
     // true (default): if no charge is configured, the payment is refused instead of silently

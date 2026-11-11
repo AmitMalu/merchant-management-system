@@ -150,7 +150,10 @@ public class BillPayConfigController {
     public static class QuoteRequest {
         private java.math.BigDecimal amount;
         private String custConvFee;
+        private String billerId;
 
+        public String getBillerId() { return billerId; }
+        public void setBillerId(String billerId) { this.billerId = billerId; }
         public java.math.BigDecimal getAmount() { return amount; }
         public void setAmount(java.math.BigDecimal amount) { this.amount = amount; }
         public String getCustConvFee() { return custConvFee; }
@@ -163,7 +166,8 @@ public class BillPayConfigController {
         Map<String, Object> quote = bbpsPaymentService.quote(
                 callerIdentity.currentMerchantId(),
                 request != null ? request.getAmount() : null,
-                request != null ? request.getCustConvFee() : null);
+                request != null ? request.getCustConvFee() : null,
+                request != null ? request.getBillerId() : null);
         return CommonResponse.success(quote, "Payment quote");
     }
 

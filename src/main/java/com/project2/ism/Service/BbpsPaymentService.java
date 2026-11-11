@@ -75,9 +75,19 @@ public class BbpsPaymentService {
     @org.springframework.beans.factory.annotation.Value("${bill.avenue.agent.payment-mode:Cash}")
     private String vendorPaymentMode = "Cash";
 
-    // The payment mode whose charge slab is used for bill payments (shared with the credit card charge).
-    @org.springframework.beans.factory.annotation.Value("${bbps.charge-mode-code:BBPS}")
-    private String chargeModeCode = "BBPS";
+    // Each bill category has its own service charge: a payment mode with the code BBPS_<CATEGORY>
+    // (BBPS_CREDIT_CARD, BBPS_ELECTRICITY, ...) with a charge slab. A category without its own mode is
+    // REFUSED, so it can never be charged with another category's slab by accident.
+    // Only when bbps.charge-default-fallback=true does such a category (or an unknown biller) use the
+    // default mode below instead.
+    @org.springframework.beans.factory.annotation.Value("${bbps.charge-default-fallback:false}")
+    private boolean chargeDefaultFallback = false;
+
+    // The fallback mode, used only when bbps.charge-default-fallback=true.
+    @org.springframework.beans.factory.annotation.Value("${bbps.charge-mode-code:BBPS_CREDIT_CARD}")
+    private String chargeModeCode = "BBPS_CREDIT_CARD";
+
+    private static final String CATEGORY_MODE_PREFIX = "BBPS_";
 
     public BbpsPaymentService(PaymentVendorRepository paymentVendorRepository,
                                BillAvenueConfigRepository billAvenueConfigRepository,
@@ -112,6 +122,13 @@ public class BbpsPaymentService {
      */
     @Transactional(readOnly = true)
     public java.util.Map<String, Object> quote(Long merchantId, BigDecimal billAmount, String custConvFeeText) {
+        return quote(merchantId, billAmount, custConvFeeText, null);
+    }
+
+    /** Same, for a biller: the biller's category decides which service charge applies. */
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> quote(Long merchantId, BigDecimal billAmount, String custConvFeeText,
+                                               String billerId) {
         if (merchantId == null) {
             throw new IllegalArgumentException("Merchant is required");
         }
@@ -119,7 +136,8 @@ public class BbpsPaymentService {
             throw new IllegalArgumentException("Enter a valid amount");
         }
         BigDecimal custConvFee = parseCustConvFee(custConvFeeText);
-        BigDecimal charges = calculateCharges(billAmount, merchantId);
+        String category = categoryOfBiller(billerId);
+        BigDecimal charges = calculateCharges(billAmount, merchantId, category);
 
         java.util.Map<String, Object> quote = new java.util.LinkedHashMap<>();
         quote.put("amount", billAmount);
@@ -127,6 +145,7 @@ public class BbpsPaymentService {
         quote.put("charges", charges);
         quote.put("totalDebit", billAmount.add(custConvFee).add(charges));
         quote.put("paymentMode", vendorPaymentMode);
+        quote.put("chargeMode", chargeModeFor(category));
         return quote;
     }
 
@@ -168,7 +187,8 @@ public class BbpsPaymentService {
 
         // 3. Charges (BBPS commission). Worked out before any money moves, so a missing
         // configuration refuses the payment cleanly.
-        BigDecimal charges = calculateCharges(billAmount, merchantId);
+        BigDecimal charges = calculateCharges(billAmount, merchantId,
+                billerConfig != null ? billerConfig.getServiceName() : null);
 
         BigDecimal totalDeduction = billAmount.add(custConvFee).add(charges);
 
@@ -528,17 +548,26 @@ public class BbpsPaymentService {
     }
 
     /**
-     * BBPS service charge, from the same charge engine the payout flow uses (payment mode "BBPS").
+     * BBPS service charge, from the same charge engine the payout flow uses (payment mode
+     * BBPS_<CATEGORY>, for example BBPS_CREDIT_CARD or BBPS_ELECTRICITY).
      * If none is configured for this merchant / amount, the payment is refused (bbps.charge-required,
      * on by default) instead of silently charging nothing. Nothing has been debited at this point.
      */
-    private BigDecimal calculateCharges(BigDecimal amount, Long merchantId) {
+    private BigDecimal calculateCharges(BigDecimal amount, Long merchantId, String category) {
+        String modeCode = chargeModeFor(category);
+        if (modeCode == null) {
+            log.error("No BBPS charge mode for category '{}' (expected {}<CATEGORY>) and the default fallback is off - payment refused",
+                    category, CATEGORY_MODE_PREFIX);
+            throw new IllegalStateException("Service charges for "
+                    + (category != null && !category.isBlank() ? category : "this") + " bill payment are not configured. "
+                    + "Please contact the administrator.");
+        }
         try {
-            return paymentChargeService.calculateCharges(amount, chargeModeCode, merchantId);
+            return paymentChargeService.calculateCharges(amount, modeCode, merchantId);
         } catch (Exception ex) {
             if (chargeRequired) {
-                log.error("No BBPS charge configuration (merchantId={} amount={}) - payment refused: {}",
-                        merchantId, amount, ex.getMessage());
+                log.error("No BBPS charge configuration (merchantId={} amount={} mode={}) - payment refused: {}",
+                        merchantId, amount, modeCode, ex.getMessage());
                 throw new IllegalStateException(
                         "Service charges for bill payment are not configured. Please contact the administrator.");
             }
@@ -546,6 +575,37 @@ public class BbpsPaymentService {
                     merchantId, ex.getMessage());
             return BigDecimal.ZERO;
         }
+    }
+
+    /** The bill category (service name) of a biller from the saved biller list, or null if unknown. */
+    private String categoryOfBiller(String billerId) {
+        if (billerId == null || billerId.isBlank()) {
+            return null;
+        }
+        return billAvenueConfigRepository.findByProviderId(billerId.trim())
+                .map(BillAvenueConfig::getServiceName).orElse(null);
+    }
+
+    /**
+     * Which payment mode's charge slab applies: BBPS_<CATEGORY> when that mode exists (for example
+     * BBPS_ELECTRICITY for the Electricity category). Without one, null (the payment is refused) unless
+     * bbps.charge-default-fallback=true, which uses the default mode (bbps.charge-mode-code).
+     */
+    String chargeModeFor(String category) {
+        if (category == null || category.isBlank()) {
+            return chargeDefaultFallback ? chargeModeCode : null;
+        }
+        String key = category.trim().toUpperCase().replaceAll("[^A-Z0-9]+", "_").replaceAll("^_+|_+$", "");
+        String specific = CATEGORY_MODE_PREFIX + key;
+        if (!key.isEmpty() && paymentChargeService.paymentModeExists(specific)) {
+            return specific;
+        }
+        if (!chargeDefaultFallback) {
+            return null;
+        }
+        log.warn("No payment mode {} for category '{}' - using the default charge mode {}",
+                specific, category, chargeModeCode);
+        return chargeModeCode;
     }
 
     // ==================== WALLET & LEDGER ====================

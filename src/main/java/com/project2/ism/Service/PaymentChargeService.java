@@ -495,6 +495,11 @@ public class PaymentChargeService {
 //        return charge.setScale(2, RoundingMode.HALF_UP);
 //    }
 
+    /** True when a payment mode with this code exists (used to pick a category specific charge). */
+    public boolean paymentModeExists(String code) {
+        return code != null && !code.isBlank() && paymentModeRepository.findByCode(code.trim()).isPresent();
+    }
+
     //@Transactional(readOnly = true)
     public BigDecimal calculateCharges(
             BigDecimal amount,

@@ -60,6 +60,9 @@ class BbpsPaymentRulesTest {
                 merchantRepo, ledger, txns,
                 new ObjectMapper(), mock(com.project2.ism.Service.Monitoring.TransactionEventService.class),
                 new BillAvenueAgentDevice("INT", "m", "203.0.113.5", false));
+        // these tests use one charge mode for every bill; the per-category rules are in BbpsPaymentQuoteTest
+        ReflectionTestUtils.setField(service, "chargeModeCode", "BBPS");
+        ReflectionTestUtils.setField(service, "chargeDefaultFallback", true);
     }
 
     private BillPaymentRequest paymentOf(String amount, String custConvFee) {

@@ -275,6 +275,87 @@ public class PermissionService {
         return permissionRepository.save(permission);
     }
 
+    // ==================== DEFAULT MODULES ====================
+
+    /**
+     * The permissions the admin sidebar uses (Sidebar.jsx, admin menu), grouped by module:
+     * module name, description, then its menu items as {name, description}.
+     * Keep this in step with the sidebar: a menu item whose name is not here (and not created by hand)
+     * can never be given to an admin.
+     */
+    private static final Object[][] DEFAULT_MODULES = {
+            {"Dashboard", "Dashboard and administration tools", new String[][]{
+                    {"Admin Management", "Create admins and give them permissions"},
+                    {"Logs", "View the system logs"},
+                    {"Taxes Manage", "Manage taxes"},
+                    {"Edit History", "View the edit history"},
+                    {"Wallet Adjustment", "Credit or debit a merchant / franchise wallet"},
+                    {"My Permissions", "See your own permissions"}}},
+            {"Vendors", "Manage vendors, products and vendor rates", new String[][]{
+                    {"Vendor List", "View and manage the vendor list"},
+                    {"Product List", "View vendor products"},
+                    {"Vendor Rates", "Manage vendor rates"}}},
+            {"Inventory Management", "Pricing schemes and inventory", new String[][]{
+                    {"Pricing Scheme", "Manage product pricing schemes"},
+                    {"Product Scheme Assign", "Assign schemes to products"},
+                    {"Inventory", "Inventory - inward / outward / return"}}},
+            {"Customers", "Customers, onboarding and approvals", new String[][]{
+                    {"Customer List", "View and manage customers"},
+                    {"Onboard Customer", "Onboard a new customer"},
+                    {"Merchant Approval", "Approve merchants"},
+                    {"Products Distribution", "Distribute products to customers"},
+                    {"Change Password", "Change a customer's password"}}},
+            {"Payment", "Payment configuration", new String[][]{
+                    {"Payment Products", "Manage payment products"},
+                    {"Payment Charges", "Manage payment charges and slabs"},
+                    {"Payment Vendors", "Manage payment vendors"},
+                    {"Payment Vendors Credentials", "Manage payment vendor credentials"},
+                    {"Payment Vendor Routing", "Manage payment vendor routing"}}},
+            {"Other", "Other tools", new String[][]{
+                    {"File Upload", "Upload files"},
+                    {"Charge Calculation", "Calculate charges"},
+                    {"Batch Status", "View batch status"},
+                    {"Prefund Authorization", "Authorize prefund requests"},
+                    {"Merchant Settings", "Merchant and franchise settings"},
+                    {"Update Transaction", "Update payout transaction status"},
+                    {"Notification URL", "Manage merchant / franchise notification URLs"}}},
+            {"Transaction Monitoring", "Transaction monitoring dashboard and rules", new String[][]{}},
+            {"Support Tickets", "View and resolve support tickets raised by merchants and franchises", new String[][]{}},
+            {"Reports", "Reports", new String[][]{}},
+    };
+
+    /**
+     * Adds every sidebar module / menu permission that does not exist yet. Existing permissions are
+     * never changed, moved or removed, so it is safe to run again and again.
+     *
+     * @return the names that were added (empty when everything was already there)
+     */
+    public List<String> addMissingDefaultPermissions() {
+        List<String> added = new ArrayList<>();
+        for (Object[] module : DEFAULT_MODULES) {
+            Permission parent = ensurePermission((String) module[0], (String) module[1], null, added);
+            for (String[] item : (String[][]) module[2]) {
+                ensurePermission(item[0], item[1], parent, added);
+            }
+        }
+        return added;
+    }
+
+    private Permission ensurePermission(String name, String description, Permission parent, List<String> added) {
+        Optional<Permission> existing = permissionRepository.findByName(name);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        Permission permission = new Permission(name, description);
+        if (parent != null) {
+            permission.setParent(parent);
+            parent.getChildren().add(permission);
+        }
+        Permission saved = permissionRepository.save(permission);
+        added.add(name);
+        return saved;
+    }
+
     // ==================== INITIALIZATION METHODS ====================
 
     /**
