@@ -76,6 +76,10 @@ class BbpsPaymentRulesTest {
         BillPaymentRequest.PaymentMethod m = new BillPaymentRequest.PaymentMethod();
         m.setPaymentMode("Cash");
         r.setPaymentMethod(m);
+        BillPaymentRequest.CustomerInfo customer = new BillPaymentRequest.CustomerInfo();
+        customer.setCustomerMobile("9876543210");
+        customer.setRemitterName("Ramesh Kumar");
+        r.setCustomerInfo(customer);
         return r;
     }
 
@@ -241,6 +245,51 @@ class BbpsPaymentRulesTest {
                 sent.getValue());
         assertFalse(sent.getValue().contains("PaymentRefId\","), sent.getValue());   // not an entry in the list
         assertTrue(result.getMessage().contains("[E077] bad mode"), result.getMessage());
+    }
+
+    // ---------------- the payer's name (REMITTER_NAME) is mandatory
+
+    @Test
+    void thePayersName_isRequired_andRefusedBeforeAnyMoneyMoves() {
+        BillPaymentRequest noName = paymentOf("100", "0");
+        noName.getCustomerInfo().setRemitterName(null);
+        BillPaymentRequest tooShort = paymentOf("100", "0");
+        tooShort.getCustomerInfo().setRemitterName("A");
+        BillPaymentRequest digits = paymentOf("100", "0");
+        digits.getCustomerInfo().setRemitterName("12345");
+        BillPaymentRequest noCustomer = paymentOf("100", "0");
+        noCustomer.setCustomerInfo(null);
+
+        for (BillPaymentRequest r : java.util.List.of(noName, tooShort, digits, noCustomer)) {
+            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.doBillPayment(r));
+            assertTrue(ex.getMessage().contains("payer's name"), ex.getMessage());
+        }
+        verifyNoInteractions(wallets);
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void thePayersName_goesToBillAvenueAsREMITTER_NAME() throws Exception {
+        com.project2.ism.Model.MerchantWallet wallet = new com.project2.ism.Model.MerchantWallet();
+        wallet.setAvailableBalance(new BigDecimal("1000"));
+        when(wallets.findByMerchantIdForUpdate(5L)).thenReturn(Optional.of(wallet));
+        when(charges.calculateCharges(any(), eq("BBPS"), eq(5L))).thenReturn(new BigDecimal("1"));
+        when(txns.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(merchantRepo.findById(5L)).thenReturn(Optional.of(new com.project2.ism.Model.Users.Merchant()));
+        when(ledger.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(credentials.getBillAvenueCredentials(7L))
+                .thenReturn(new com.project2.ism.DTO.BillAvenueCredentials("u", "AGENT01", "s", "k", "i"));
+        when(client.call(eq(7L), eq(BillAvenueApiType.BILL_PAYMENT), any(), anyString()))
+                .thenReturn("{\"responseCode\":\"001\"}");
+
+        BillPaymentRequest request = paymentOf("100", "0");
+        request.getCustomerInfo().setRemitterName("  Ramesh   Kumar ");
+        service.doBillPayment(request);
+
+        org.mockito.ArgumentCaptor<String> sent = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(client).call(eq(7L), eq(BillAvenueApiType.BILL_PAYMENT), any(), sent.capture());
+        assertTrue(sent.getValue().contains("\"REMITTER_NAME\":\"Ramesh Kumar\""), sent.getValue());
+        assertFalse(sent.getValue().contains("remitterName"), sent.getValue());
     }
 
     // ---------------- cash payments of Rs.50,000 or more need the customer's PAN

@@ -157,6 +157,7 @@ public class BbpsPaymentService {
 
         Long merchantId = request.getMerchantId();
         BigDecimal billAmount = request.getAmountInfo().getAmount();
+        requireRemitterName(request);
         requirePanForLargeCashPayment(request, billAmount);
         BigDecimal custConvFee = parseCustConvFee(request.getAmountInfo().getCustConvFee());
 
@@ -361,6 +362,23 @@ public class BbpsPaymentService {
      * RBI rule passed on by Bill Avenue: a cash payment of Rs.50,000 or more must carry the customer's
      * PAN. Checked here, before any money moves, so the merchant is told straight away.
      */
+    private static final java.util.regex.Pattern REMITTER_NAME_FORMAT =
+            java.util.regex.Pattern.compile("^[A-Za-z][A-Za-z .'-]{1,49}$");
+
+    /**
+     * Bill Avenue spec (Remitter Info): the payer's name is mandatory for every payment
+     * (it answers with E030 otherwise). Checked here, before any money moves.
+     */
+    private void requireRemitterName(BillPaymentRequest request) {
+        String name = request.getCustomerInfo() != null ? request.getCustomerInfo().getRemitterName() : null;
+        name = name == null ? "" : name.trim().replaceAll("\\s+", " ");
+        if (!REMITTER_NAME_FORMAT.matcher(name).matches()) {
+            throw new IllegalArgumentException(
+                    "The payer's name is required (letters only, 2 to 50 characters)");
+        }
+        request.getCustomerInfo().setRemitterName(name);
+    }
+
     private void requirePanForLargeCashPayment(BillPaymentRequest request, BigDecimal billAmount) {
         if (billAmount.compareTo(CASH_PAN_LIMIT) < 0 || !"Cash".equalsIgnoreCase(vendorPaymentMode)) {
             return;

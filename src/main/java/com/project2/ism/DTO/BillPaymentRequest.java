@@ -111,6 +111,15 @@ public class BillPaymentRequest {
         private String customerAdhaar;
         private String customerPan;
 
+        // The payer's name. Bill Avenue calls it REMITTER_NAME and it is mandatory
+        // (error E030 "Remitter Name required"); the website may send it as remitterName too.
+        @com.fasterxml.jackson.annotation.JsonProperty("REMITTER_NAME")
+        @com.fasterxml.jackson.annotation.JsonAlias({"remitterName", "remitter_name"})
+        private String remitterName;
+
+        public String getRemitterName() { return remitterName; }
+        public void setRemitterName(String remitterName) { this.remitterName = remitterName; }
+
         public String getCustomerMobile() { return customerMobile; }
         public void setCustomerMobile(String customerMobile) { this.customerMobile = customerMobile; }
 
