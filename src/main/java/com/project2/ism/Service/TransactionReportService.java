@@ -267,7 +267,7 @@ public class TransactionReportService {
     private void calculateAndSetGst(MerchantTransactionReportDTO dto, BigDecimal gstPercentage) {
         // Calculate GST on system fee (merchant's charge)
 
-        if ("PAYOUT".equalsIgnoreCase(dto.getService()) || "PAYOUT_REFUND".equalsIgnoreCase(dto.getService())) return;
+        if ("PAYOUT_REFUND".equalsIgnoreCase(dto.getService())) return;   // a refund carries no charge
         if (dto.getSystemFee() != null && gstPercentage != null) {
             BigDecimal gstAmount = dto.getSystemFee()
                     .multiply(gstPercentage)
@@ -979,7 +979,7 @@ public class TransactionReportService {
          * whenever they are present in the header.
          */
         if (includeTaxColumns) {
-            if (!isWalletTransaction(dto.getService())) {
+            if (!"PAYOUT_REFUND".equalsIgnoreCase(dto.getService())) {
                 setCellValue(row, colNum++, dto.getSystemFeeExGST());
                 setCellValue(row, colNum++, dto.getGstAmount());
                 setCellValue(row, colNum++, taxesService.getTaxes().getGst());
@@ -1387,9 +1387,9 @@ public class TransactionReportService {
                     // Apply role-based filtering
                     MerchantTransactionReportDTO filteredDto = applyRoleBasedFiltering(dto, userRole);
 
-                    // Calculate GST only for settlement transactions and admin users
+                    // Calculate GST for every charge (settlements and payouts), not for refunds
                     if (includeTaxes && gstPercentage != null &&
-                            !isWalletTransaction(filteredDto.getService())) {
+                            !"PAYOUT_REFUND".equalsIgnoreCase(filteredDto.getService())) {
                         calculateAndSetGst(filteredDto, gstPercentage);
                     }
 
