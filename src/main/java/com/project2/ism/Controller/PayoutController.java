@@ -216,10 +216,13 @@ public class PayoutController {
             LocalDate endDate,
 
             @RequestParam(defaultValue = "BOTH")
-            String service, // PAYOUT | PAYOUT_REFUND | FAILED | BOTH
+            String service, // PAYOUT | PAYOUT_REFUND | FAILED | PENDING | BOTH
 
             @RequestParam(required = false)
             Long merchantId,
+
+            @RequestParam(required = false)
+            Long vendorId,
 
             @RequestParam(defaultValue = "0")
             int page,
@@ -232,9 +235,23 @@ public class PayoutController {
                 endDate,
                 service,
                 merchantId,
+                vendorId,
                 page,
                 size
         );
+    }
+
+    /** The vendors that have payouts: the choices of the report's Vendor filter. */
+    @GetMapping("/transactions/report/vendors")
+    public List<Map<String, Object>> getReportVendors() {
+        return payoutTxnRepo.findPayoutVendors().stream()
+                .map(v -> {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("id", v.getId());
+                    row.put("name", v.getName());
+                    return row;
+                })
+                .toList();
     }
 
 

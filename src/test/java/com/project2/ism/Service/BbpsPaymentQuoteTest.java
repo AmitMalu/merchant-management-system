@@ -62,6 +62,27 @@ class BbpsPaymentQuoteTest {
     }
 
     @Test
+    void aBillerThatDoesNotAcceptCash_isRefusedAtTheQuote_withItsAcceptedModes() {
+        BillAvenueConfig bob = new BillAvenueConfig();
+        bob.setProviderId("BANK00000NATKB");
+        bob.setProviderName("BoB Credit Card");
+        bob.setServiceName("Credit Card");
+        bob.setRawConfig("{\"billerPaymentModes\":{\"paymentModeList\":[{\"paymentModeName\":\"UPI\"},"
+                + "{\"paymentModeName\":\"Debit Card\"}]}}");
+        when(billers.findByProviderId("BANK00000NATKB")).thenReturn(Optional.of(bob));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.quote(5L, new BigDecimal("1000"), null, "BANK00000NATKB"));
+        assertTrue(ex.getMessage().contains("does not accept Cash"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("UPI, Debit Card"), ex.getMessage());
+
+        // A biller that lists Cash, or lists nothing, is not blocked.
+        bob.setRawConfig("{\"billerPaymentModes\":{\"paymentModeList\":[{\"paymentModeName\":\"Cash\"}]}}");
+        when(charges.calculateCharges(any(), eq("BBPS_CREDIT_CARD"), eq(5L))).thenReturn(BigDecimal.ONE);
+        assertEquals(new BigDecimal("1001"), service.quote(5L, new BigDecimal("1000"), null, "BANK00000NATKB").get("totalDebit"));
+    }
+
+    @Test
     void quote_isBillAmountPlusServiceCharge_andTouchesNoWallet() {
         when(charges.calculateCharges(new BigDecimal("1000"), "BBPS_CREDIT_CARD", 5L)).thenReturn(new BigDecimal("12.50"));
 

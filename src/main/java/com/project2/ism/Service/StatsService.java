@@ -165,6 +165,27 @@ public class StatsService {
             String dateType,
             Long merchantId
     ) {
+        return getSettledUnsettled(settled, fromDate, toDate, dateType, merchantId, null, null);
+    }
+
+    /** The choices of the report's Acquiring Bank and Machine Model filters. */
+    public java.util.Map<String, List<String>> getSettledUnsettledFilterOptions() {
+        java.util.Map<String, List<String>> options = new java.util.LinkedHashMap<>();
+        options.put("acquiringBanks", vendorTransactionsRepository.findDistinctAcquiringBanks());
+        options.put("models", productSerialsRepository.findDistinctModels());
+        return options;
+    }
+
+    /** Same, narrowed to one acquiring bank and / or one machine model (null or blank = any). */
+    public List<SettledUnsettledReportDto> getSettledUnsettled(
+            Boolean settled,
+            LocalDateTime fromDate,
+            LocalDateTime toDate,
+            String dateType,
+            Long merchantId,
+            String acquiringBank,
+            String model
+    ) {
 
         String normalizedDateType =
                 dateType == null || dateType.isBlank()
@@ -179,13 +200,42 @@ public class StatsService {
             );
         }
 
-        return vendorTransactionsRepository.getSettledUnsettledReports(
+        List<SettledUnsettledReportDto> rows = vendorTransactionsRepository.getSettledUnsettledReports(
                 settled,
                 fromDate,
                 toDate,
                 normalizedDateType,
-                merchantId
+                merchantId,
+                blankToNull(acquiringBank),
+                blankToNull(model)
         );
+
+        addMachineModels(rows);
+        return rows;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() || "ALL".equalsIgnoreCase(value.trim()) ? null : value.trim();
+    }
+
+    /** The model of the machine behind each row, found in inventory by MID and TID. */
+    private void addMachineModels(List<SettledUnsettledReportDto> rows) {
+        java.util.Set<String> mids = new java.util.HashSet<>();
+        for (SettledUnsettledReportDto r : rows) {
+            if (r.getMid() != null && !r.getMid().isBlank()) {
+                mids.add(r.getMid());
+            }
+        }
+        if (mids.isEmpty()) {
+            return;
+        }
+        java.util.Map<String, String> modelByMidAndTid = new java.util.HashMap<>();
+        for (Object[] m : productSerialsRepository.findModelsByMids(mids)) {
+            modelByMidAndTid.putIfAbsent(m[0] + "|" + m[1], (String) m[2]);
+        }
+        for (SettledUnsettledReportDto r : rows) {
+            r.setModel(modelByMidAndTid.get(r.getMid() + "|" + r.getTid()));
+        }
     }
 
 }

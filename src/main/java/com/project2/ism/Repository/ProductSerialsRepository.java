@@ -17,6 +17,16 @@ import java.util.stream.Collectors;
 
 @Repository
 public interface ProductSerialsRepository extends JpaRepository<ProductSerialNumbers,Long> {
+    /** MID, TID and model of the machines with these MIDs (to show / filter by machine model). */
+    @Query("select psn.mid, psn.tid, p.model from ProductSerialNumbers psn join psn.product p "
+            + "where psn.mid in :mids and psn.tid is not null and p.model is not null")
+    List<Object[]> findModelsByMids(@Param("mids") java.util.Collection<String> mids);
+
+    /** The machine models in inventory (choices of the report's Machine Model filter). */
+    @Query("select distinct p.model from ProductSerialNumbers psn join psn.product p "
+            + "where p.model is not null and p.model <> '' order by p.model")
+    List<String> findDistinctModels();
+
     boolean existsBySid(String sid);
     boolean existsByMid(String mid);
     boolean existsByTid(String tid);

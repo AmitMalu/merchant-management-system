@@ -28,4 +28,6 @@ public interface PayoutTransactionReportDTO {
     Long getMerchantId();   // populated only for merchant records
 
     Long getFranchiseId();  // populated only for franchise records
+
+    String getVendorName(); // the payout vendor; empty for refunds made before the link was kept
 }

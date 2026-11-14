@@ -53,13 +53,21 @@ public class StatsController {
         return ResponseEntity.ok(reports);
     }
 
+    /** The choices of the report's Acquiring Bank and Machine Model filters. */
+    @GetMapping("/settled-unsettled-reports/filter-options")
+    public ResponseEntity<java.util.Map<String, List<String>>> getSettledUnsettledFilterOptions() {
+        return ResponseEntity.ok(statsService.getSettledUnsettledFilterOptions());
+    }
+
     @GetMapping("/settled-unsettled-reports")
     public ResponseEntity<List<SettledUnsettledReportDto>> getSettledUnsettledReports(
             @RequestParam(required = false) Boolean settled,
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "TRANSACTION_DATE") String dateType,
-            @RequestParam(required = false) Long merchantId
+            @RequestParam(required = false) Long merchantId,
+            @RequestParam(required = false) String acquiringBank,
+            @RequestParam(required = false) String model
     ) {
 
         LocalDateTime to;
@@ -91,7 +99,9 @@ public class StatsController {
                         from,
                         to,
                         dateType,
-                        merchantId
+                        merchantId,
+                        acquiringBank,
+                        model
                 );
 
         return ResponseEntity.ok(reports);

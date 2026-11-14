@@ -136,6 +136,8 @@ public class BbpsPaymentService {
             throw new IllegalArgumentException("Enter a valid amount");
         }
         BigDecimal custConvFee = parseCustConvFee(custConvFeeText);
+        requireBillerAcceptsPaymentMode(billerId == null ? null
+                : billAvenueConfigRepository.findByProviderId(billerId.trim()).orElse(null));
         String category = categoryOfBiller(billerId);
         BigDecimal charges = calculateCharges(billAmount, merchantId, category);
 
@@ -173,6 +175,9 @@ public class BbpsPaymentService {
         BillAvenueConfig billerConfig = billAvenueConfigRepository
                 .findByProviderId(request.getBillerId())
                 .orElse(null);
+
+        // Refuse a biller that does not accept our payment mode (Bill Avenue: E0379), before any money moves.
+        requireBillerAcceptsPaymentMode(billerConfig);
 
         // The payment must use the SAME request id as the bill fetch (Bill Avenue links them by it:
         // "No fetch data found for given ref id" otherwise). One payment per fetch: a request id that
@@ -593,6 +598,31 @@ public class BbpsPaymentService {
                     merchantId, ex.getMessage());
             return BigDecimal.ZERO;
         }
+    }
+
+    /**
+     * Every biller lists the payment modes it accepts (raw_config: billerPaymentModes.paymentModeList).
+     * Some, for example a few credit card billers, do not accept Cash, and Bill Avenue then answers
+     * E0379 "Payment mode Cash is disable for biller". Saying so up front means the merchant is told
+     * at the quote, and no wallet debit and refund happens. A biller with no saved list is not blocked.
+     */
+    private void requireBillerAcceptsPaymentMode(BillAvenueConfig biller) {
+        if (biller == null || biller.getRawConfig() == null || biller.getRawConfig().isBlank()) {
+            return;
+        }
+        java.util.List<String> accepted = new java.util.ArrayList<>();
+        try {
+            objectMapper.readTree(biller.getRawConfig()).path("billerPaymentModes")
+                    .findValues("paymentModeName").forEach(n -> accepted.add(n.asText("").trim()));
+        } catch (Exception ex) {
+            return;     // unreadable list: let Bill Avenue decide
+        }
+        accepted.removeIf(String::isEmpty);
+        if (accepted.isEmpty() || accepted.stream().anyMatch(m -> m.equalsIgnoreCase(vendorPaymentMode))) {
+            return;
+        }
+        throw new IllegalArgumentException(biller.getProviderName() + " does not accept " + vendorPaymentMode
+                + " payments, so it cannot be paid from here. It accepts: " + String.join(", ", accepted) + ".");
     }
 
     /** The bill category (service name) of a biller from the saved biller list, or null if unknown. */

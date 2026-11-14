@@ -103,7 +103,8 @@ public final class CreditCardDtos {
                             String complaintTicketId,
                             String requestId,
                             String vendorTxnId,
-                            BigDecimal dueAmount) {
+                            BigDecimal dueAmount,
+                            String vendor) {
     }
 
     /** Counts are for every status; the money totals are for SUCCESS payments only. */

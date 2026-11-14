@@ -107,6 +107,14 @@ public class PayoutTransaction {
     @Column(name = "ledger_franchise_txn_id")
     private Long ledgerFranchiseTxnId; // reference to FranchiseTransactionDetails
 
+    // The ledger row of the refund, when a failed payout was refunded (the Payout Transaction report
+    // uses it to tell which vendor a refund belongs to).
+    @Column(name = "ledger_refund_merchant_txn_id")
+    private Long ledgerRefundMerchantTxnId;
+
+    @Column(name = "ledger_refund_franchise_txn_id")
+    private Long ledgerRefundFranchiseTxnId;
+
     @Column(name = "vendor_id", nullable = false)
     private Long vendorId; // reference to PaymentVendor
 
@@ -221,6 +229,12 @@ public class PayoutTransaction {
     public void setLedgerFranchiseTxnId(Long ledgerFranchiseTxnId) {
         this.ledgerFranchiseTxnId = ledgerFranchiseTxnId;
     }
+
+    public Long getLedgerRefundMerchantTxnId() { return ledgerRefundMerchantTxnId; }
+    public void setLedgerRefundMerchantTxnId(Long id) { this.ledgerRefundMerchantTxnId = id; }
+
+    public Long getLedgerRefundFranchiseTxnId() { return ledgerRefundFranchiseTxnId; }
+    public void setLedgerRefundFranchiseTxnId(Long id) { this.ledgerRefundFranchiseTxnId = id; }
 
     public Long getVendorId() { return vendorId; }
     public void setVendorId(Long vendorId) { this.vendorId = vendorId; }

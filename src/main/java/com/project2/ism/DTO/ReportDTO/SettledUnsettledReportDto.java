@@ -28,6 +28,8 @@ public class SettledUnsettledReportDto {
     private String tid;
     private String transactionReferenceId;
     private String settlementStatus;
+    private String acquiringBank;
+    private String model;               // the machine's model, looked up from inventory by MID and TID
 
     //REQUIRED constructor for JPQL
     public SettledUnsettledReportDto(
@@ -52,7 +54,8 @@ public class SettledUnsettledReportDto {
             String status,
             String tid,
             String transactionReferenceId,
-            String settlementStatus
+            String settlementStatus,
+            String acquiringBank
     ) {
         this.amount = amount;
         this.brandType = brandType;
@@ -76,9 +79,26 @@ public class SettledUnsettledReportDto {
         this.tid = tid;
         this.transactionReferenceId = transactionReferenceId;
         this.settlementStatus = settlementStatus;
+        this.acquiringBank = acquiringBank;
     }
 
     // getters (or Lombok @Getter)
+
+    public String getAcquiringBank() {
+        return acquiringBank;
+    }
+
+    public void setAcquiringBank(String acquiringBank) {
+        this.acquiringBank = acquiringBank;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
 
 
     public BigDecimal getAmount() {

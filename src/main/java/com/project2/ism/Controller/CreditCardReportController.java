@@ -50,6 +50,7 @@ public class CreditCardReportController {
             @RequestParam(required = false) String customerType,
             @RequestParam(required = false) Long customerId,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String vendor,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
@@ -58,7 +59,7 @@ public class CreditCardReportController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", true);
         body.put("data", reportService.getReport(viewer,
-                new Filters(startDate, endDate, status, customerType, customerId, search), page, size));
+                new Filters(startDate, endDate, status, customerType, customerId, search, vendor), page, size));
         return ResponseEntity.ok(body);
     }
 

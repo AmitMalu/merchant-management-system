@@ -687,7 +687,7 @@ public class PayoutService {
         mtd = merchantTxnRepo.save(mtd);
         payoutTxn.setLedgerMerchantTxnId(mtd.getTransactionId());
         // Now generate merchantRefId
-        String merchantRefId = "MER-" + mtd.getTransactionId();
+        String merchantRefId = "MER" + mtd.getTransactionId();
         payoutTxn.setMerchantRefId(merchantRefId);
         payoutTxnRepo.save(payoutTxn);
 
@@ -719,7 +719,7 @@ public class PayoutService {
         ftd = franchiseTxnRepo.save(ftd);
         payoutTxn.setLedgerFranchiseTxnId(ftd.getTransactionId());
         // Generate merchantRefId from ledger id
-        String merchantRefId = "FRA-" + ftd.getTransactionId();
+        String merchantRefId = "FRA" + ftd.getTransactionId();
         payoutTxn.setMerchantRefId(merchantRefId);
         payoutTxnRepo.save(payoutTxn);
 
@@ -818,7 +818,11 @@ public class PayoutService {
                 "Refund for failed payout - " + payoutTxn.getResponseMessage() +
                         " | Beneficiary A/C: " + payoutTxn.getBeneficiaryAccountNumber());
 
-        merchantTxnRepo.save(refundEntry);
+        MerchantTransactionDetails savedRefund = merchantTxnRepo.save(refundEntry);
+
+        // keep which payout this refund belongs to (the report can then tell its vendor)
+        payoutTxn.setLedgerRefundMerchantTxnId(savedRefund.getTransactionId());
+        payoutTxnRepo.save(payoutTxn);
 
         log.debug("Refunded merchant {} wallet: amount={}", payoutTxn.getInitiatorId(), payoutTxn.getTotalDeducted());
     }
@@ -849,7 +853,10 @@ public class PayoutService {
         refundEntry.setService("PAYOUT_REFUND");
         refundEntry.setVendorTransactionId(payoutTxn.getVendorTxnId());
         refundEntry.setRemarks("Refund for failed payout - " + payoutTxn.getResponseMessage());
-        franchiseTxnRepo.save(refundEntry);
+        FranchiseTransactionDetails savedRefund = franchiseTxnRepo.save(refundEntry);
+
+        payoutTxn.setLedgerRefundFranchiseTxnId(savedRefund.getTransactionId());
+        payoutTxnRepo.save(payoutTxn);
 
         log.debug("Refunded franchise {} wallet: amount={}", payoutTxn.getInitiatorId(), payoutTxn.getTotalDeducted());
     }
@@ -893,10 +900,23 @@ public class PayoutService {
             int page,
             int size
     ) {
+        return getTransactionReport(startDate, endDate, service, merchantId, null, page, size);
+    }
+
+    /** Same, narrowed to one payout vendor (vendorId; null = all vendors). */
+    public PayoutTransactionReportResponse getTransactionReport(
+            LocalDate startDate,
+            LocalDate endDate,
+            String service,
+            Long merchantId,
+            Long vendorId,
+            int page,
+            int size
+    ) {
         log.info(
                 "Fetching payout transaction report | startDate={}, endDate={}, " +
-                        "service={}, merchantId={}, page={}, size={}",
-                startDate, endDate, service, merchantId, page, size);
+                        "service={}, merchantId={}, vendorId={}, page={}, size={}",
+                startDate, endDate, service, merchantId, vendorId, page, size);
 
         // Date handling
         if (startDate == null && endDate == null) {
@@ -921,6 +941,10 @@ public class PayoutService {
         } else if ("FAILED".equalsIgnoreCase(service)) {
             services = List.of("PAYOUT", "PAYOUT_REFUND");
             tranStatus = "FAILED";
+        } else if ("PENDING".equalsIgnoreCase(service)) {
+            // payouts still waiting for the bank's answer
+            services = List.of("PAYOUT", "PAYOUT_REFUND");
+            tranStatus = "PENDING";
         } else {
             services = List.of(service);
         }
@@ -933,11 +957,11 @@ public class PayoutService {
 
         // Fetch data
         Page<PayoutTransactionReportDTO> transactions =
-                merchantTransDetRepo.fetchTransactions(from, to, services, tranStatus, merchantId, pageable);
+                merchantTransDetRepo.fetchTransactions(from, to, services, tranStatus, merchantId, vendorId, pageable);
 
         // Fetch counts
         PayoutServiceCountDTO counts =
-                merchantTransDetRepo.fetchServiceCounts(from, to, services, merchantId);
+                merchantTransDetRepo.fetchServiceCounts(from, to, services, merchantId, vendorId);
 
         // Build response
         PayoutTransactionReportResponse response = new PayoutTransactionReportResponse();

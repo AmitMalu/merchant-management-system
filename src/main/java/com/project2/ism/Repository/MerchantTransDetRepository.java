@@ -540,6 +540,33 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("merchantId") Long merchantId);
 
 
+    // Which vendor a payout ledger row belongs to: the ledger row of the payout itself, or of its refund,
+    // is linked from the payout record (payout_transactions). Refunds made before the link was kept have no
+    // vendor.
+    String MERCHANT_PAYOUT_VENDOR = """
+            LEFT JOIN (
+                SELECT p.ledger_merchant_txn_id AS lid, p.vendor_id AS vid, v.vendor_name AS vname
+                FROM payout_transactions p JOIN payment_vendors v ON v.id = p.vendor_id
+                WHERE p.ledger_merchant_txn_id IS NOT NULL
+                UNION ALL
+                SELECT p.ledger_refund_merchant_txn_id, p.vendor_id, v.vendor_name
+                FROM payout_transactions p JOIN payment_vendors v ON v.id = p.vendor_id
+                WHERE p.ledger_refund_merchant_txn_id IS NOT NULL
+            ) pv ON pv.lid = m.transaction_id
+            """;
+
+    String FRANCHISE_PAYOUT_VENDOR = """
+            LEFT JOIN (
+                SELECT p.ledger_franchise_txn_id AS lid, p.vendor_id AS vid, v.vendor_name AS vname
+                FROM payout_transactions p JOIN payment_vendors v ON v.id = p.vendor_id
+                WHERE p.ledger_franchise_txn_id IS NOT NULL
+                UNION ALL
+                SELECT p.ledger_refund_franchise_txn_id, p.vendor_id, v.vendor_name
+                FROM payout_transactions p JOIN payment_vendors v ON v.id = p.vendor_id
+                WHERE p.ledger_refund_franchise_txn_id IS NOT NULL
+            ) pf ON pf.lid = f.transaction_id
+            """;
+
     @Query(
             value = """
             SELECT
@@ -554,7 +581,8 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                 t.transactionDate,
                 t.transactionType,
                 t.merchantId,
-                t.franchiseId
+                t.franchiseId,
+                t.vendorName
             FROM (
                 SELECT
                     m.transaction_id AS transactionId,
@@ -568,8 +596,10 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                     m.transaction_date AS transactionDate,
                     m.transaction_type AS transactionType,
                     m.merchant_id AS merchantId,
-                    NULL AS franchiseId
+                    NULL AS franchiseId,
+                    pv.vname AS vendorName
                 FROM merchant_transaction_details m
+                """ + MERCHANT_PAYOUT_VENDOR + """
                 WHERE m.transaction_date >= :startDate
                   AND m.transaction_date < :endDate
                   AND m.service IN (:services)
@@ -578,6 +608,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                         :merchantId IS NULL
                         OR m.merchant_id = :merchantId
                   )
+                  AND (:vendorId IS NULL OR pv.vid = :vendorId)
 
                 UNION ALL
 
@@ -593,13 +624,16 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                     f.transaction_date AS transactionDate,
                     f.transaction_type AS transactionType,
                     NULL AS merchantId,
-                    f.franchise_id AS franchiseId
+                    f.franchise_id AS franchiseId,
+                    pf.vname AS vendorName
                 FROM franchise_transaction_details f
+                """ + FRANCHISE_PAYOUT_VENDOR + """
                 WHERE f.transaction_date >= :startDate
                   AND f.transaction_date < :endDate
                   AND f.service IN (:services)
                   AND (:status IS NULL OR f.tran_status = :status)
                   AND :merchantId IS NULL
+                  AND (:vendorId IS NULL OR pf.vid = :vendorId)
             ) t
             ORDER BY t.transactionDate DESC
             """,
@@ -609,6 +643,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             FROM (
                 SELECT m.transaction_id
                 FROM merchant_transaction_details m
+                """ + MERCHANT_PAYOUT_VENDOR + """
                 WHERE m.transaction_date >= :startDate
                   AND m.transaction_date < :endDate
                   AND m.service IN (:services)
@@ -617,16 +652,19 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                         :merchantId IS NULL
                         OR m.merchant_id = :merchantId
                   )
+                  AND (:vendorId IS NULL OR pv.vid = :vendorId)
 
                 UNION ALL
 
                 SELECT f.transaction_id
                 FROM franchise_transaction_details f
+                """ + FRANCHISE_PAYOUT_VENDOR + """
                 WHERE f.transaction_date >= :startDate
                   AND f.transaction_date < :endDate
                   AND f.service IN (:services)
                   AND (:status IS NULL OR f.tran_status = :status)
                   AND :merchantId IS NULL
+                  AND (:vendorId IS NULL OR pf.vid = :vendorId)
             ) x
             """,
             nativeQuery = true
@@ -637,6 +675,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("services") List<String> services,
             @Param("status") String status,
             @Param("merchantId") Long merchantId,
+            @Param("vendorId") Long vendorId,
             Pageable pageable
     );
 
@@ -668,6 +707,7 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             FROM (
                 SELECT m.service
                 FROM merchant_transaction_details m
+                """ + MERCHANT_PAYOUT_VENDOR + """
                 WHERE m.transaction_date >= :startDate
                   AND m.transaction_date < :endDate
                   AND m.service IN (:services)
@@ -675,15 +715,18 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
                         :merchantId IS NULL
                         OR m.merchant_id = :merchantId
                   )
+                  AND (:vendorId IS NULL OR pv.vid = :vendorId)
 
                 UNION ALL
 
                 SELECT f.service
                 FROM franchise_transaction_details f
+                """ + FRANCHISE_PAYOUT_VENDOR + """
                 WHERE f.transaction_date >= :startDate
                   AND f.transaction_date < :endDate
                   AND f.service IN (:services)
                   AND :merchantId IS NULL
+                  AND (:vendorId IS NULL OR pf.vid = :vendorId)
             ) x
             """,
             nativeQuery = true
@@ -692,7 +735,8 @@ public interface MerchantTransDetRepository extends JpaRepository<MerchantTransa
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
             @Param("services") List<String> services,
-            @Param("merchantId") Long merchantId
+            @Param("merchantId") Long merchantId,
+            @Param("vendorId") Long vendorId
     );
 
 

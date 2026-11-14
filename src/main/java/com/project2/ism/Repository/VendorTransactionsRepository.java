@@ -76,7 +76,8 @@ SELECT new com.project2.ism.DTO.ReportDTO.SettledUnsettledReportDto(
     v.status,
     v.tid,
     v.transactionReferenceId,
-    v.settlementStatus
+    v.settlementStatus,
+    v.acquiringBank
 )
 FROM VendorTransactions v
 WHERE
@@ -90,6 +91,19 @@ WHERE
             WHERE psn.merchant.id = :merchantId
               AND psn.mid = v.mid
               AND psn.tid = v.tid
+        )
+    )
+
+    AND (:acquiringBank IS NULL OR v.acquiringBank = :acquiringBank)
+
+    AND (
+        :model IS NULL
+        OR EXISTS (
+            SELECT psnm.id
+            FROM ProductSerialNumbers psnm
+            WHERE psnm.mid = v.mid
+              AND psnm.tid = v.tid
+              AND psnm.product.model = :model
         )
     )
 
@@ -118,7 +132,14 @@ ORDER BY
             @Param("fromDate") LocalDateTime fromDate,
             @Param("toDate") LocalDateTime toDate,
             @Param("dateType") String dateType,
-            @Param("merchantId") Long merchantId
+            @Param("merchantId") Long merchantId,
+            @Param("acquiringBank") String acquiringBank,
+            @Param("model") String model
     );
+
+    /** The acquiring banks that appear on transactions (choices of the report's Bank filter). */
+    @Query("SELECT DISTINCT v.acquiringBank FROM VendorTransactions v "
+            + "WHERE v.acquiringBank IS NOT NULL AND v.acquiringBank <> '' ORDER BY v.acquiringBank")
+    List<String> findDistinctAcquiringBanks();
 
 }

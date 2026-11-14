@@ -20,6 +20,18 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
 
     Optional<PayoutTransaction> findByMerchantRefId(String merchantRefId);
 
+    /** One vendor that has payouts (for the vendor filter of the Payout Transaction report). */
+    interface PayoutVendorRow {
+        Long getId();
+
+        String getName();
+    }
+
+    @Query(value = "SELECT DISTINCT v.id AS id, v.vendor_name AS name "
+            + "FROM payout_transactions p JOIN payment_vendors v ON v.id = p.vendor_id "
+            + "ORDER BY v.vendor_name", nativeQuery = true)
+    List<PayoutVendorRow> findPayoutVendors();
+
     boolean existsByMerchantRefId(String merchantRefId);
 
     Optional<PayoutTransaction> findByVendorTxnId(String vendorTxnId);
