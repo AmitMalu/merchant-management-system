@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project2.ism.DTO.Vendor.VendorCredentialsRequestDTO;
 import com.project2.ism.DTO.Vendor.VendorCredentialsResponseDTO;
+import com.project2.ism.Model.Payment.PaymentProduct;
 import com.project2.ism.Model.Payment.PaymentVendor;
 import com.project2.ism.Model.Payment.PaymentVendorCredentials;
 import com.project2.ism.Repository.PaymentProductRepository;
@@ -31,11 +32,13 @@ class PaymentVendorCredentialsServiceTest {
     private PaymentVendorCredentialsRepository repo;
     private PaymentVendorCredentialsService service;
     private PaymentVendorCredentials saved;
+    private PaymentProductRepository productRepo;
 
     @BeforeEach
     void setUp() {
         repo = mock(PaymentVendorCredentialsRepository.class);
-        service = new PaymentVendorCredentialsService(repo, mock(PaymentVendorRepository.class), mock(PaymentProductRepository.class));
+        productRepo = mock(PaymentProductRepository.class);
+        service = new PaymentVendorCredentialsService(repo, mock(PaymentVendorRepository.class), productRepo);
 
         PaymentVendor vendor = new PaymentVendor();
         ReflectionTestUtils.setField(vendor, "id", 3L);
@@ -129,6 +132,31 @@ class PaymentVendorCredentialsServiceTest {
         assertEquals("changed-user", saved.getUserIdUat());
         assertEquals("prod-secret", saved.getSecretKeyProd());   // untouched
         assertEquals("UAT", saved.getActiveEnvironment());
+    }
+
+    @Test
+    void editingTheProduct_isSaved_andChoosingNoProductClearsIt() {
+        PaymentProduct payout = new PaymentProduct();
+        ReflectionTestUtils.setField(payout, "id", 1L);
+        payout.setProductName("Payout");
+        when(productRepo.findById(1L)).thenReturn(Optional.of(payout));
+
+        VendorCredentialsRequestDTO request = new VendorCredentialsRequestDTO();
+        request.setActiveEnvironment("PROD");
+        request.setIsActive(true);
+        request.setProductId(1L);
+
+        VendorCredentialsResponseDTO response = service.update(9L, request);
+
+        assertEquals(payout, saved.getPaymentProduct());
+        assertEquals(1L, response.getProductId());
+        assertEquals("Payout", response.getProductName());
+
+        request.setProductId(null);
+        response = service.update(9L, request);
+
+        assertNull(saved.getPaymentProduct());
+        assertNull(response.getProductName());
     }
 
     @Test

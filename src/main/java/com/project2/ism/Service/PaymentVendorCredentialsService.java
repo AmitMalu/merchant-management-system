@@ -62,6 +62,19 @@ public class PaymentVendorCredentialsService {
         PaymentVendorCredentials vc = paymentVendorCredentialsRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Credentials not found"));
 
+        // The Edit form lets the admin change the vendor and the product, so save them too.
+        // No product chosen means the product is cleared (it is optional).
+        if (dto.getVendorId() != null) {
+            vc.setPaymentVendor(paymentVendorRepository.findById(dto.getVendorId())
+                    .orElseThrow(() -> new RuntimeException("Vendor not found")));
+        }
+        if (dto.getProductId() != null) {
+            vc.setPaymentProduct(paymentProductRepository.findById(dto.getProductId())
+                    .orElseThrow(() -> new RuntimeException("Product not found")));
+        } else {
+            vc.setPaymentProduct(null);
+        }
+
         mapDtoToEntity(dto, vc);
         paymentVendorCredentialsRepository.save(vc);
 
