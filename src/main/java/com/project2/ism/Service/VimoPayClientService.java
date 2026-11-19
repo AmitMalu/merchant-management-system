@@ -881,7 +881,10 @@ public class VimoPayClientService {
                 log.debug("Decrypted vendor error response | merchantRefId={} | data={}",
                         request.getMerchantRefId(), decryptedData);
 
-                return PayoutResult.failed(request.getMerchantRefId(), wrapper.getMessage());
+                // The outer message is only "Failed"; the real reason (for example "Beneficiary Daily Limit
+                // exhausted") is inside the decrypted data. Show that one when there is one.
+                return PayoutResult.failed(request.getMerchantRefId(),
+                        vendorReason(decryptedData, wrapper.getMessage()));
             }
 
             // Decrypt response
@@ -977,6 +980,27 @@ public class VimoPayClientService {
 
 
     /* ------------------------ helpers ------------------------ */
+
+    /**
+     * The vendor's own reason from its decrypted error answer ("responseMessage"), or the fallback (the outer
+     * message) when the answer has none or cannot be read. Never throws.
+     */
+    static String vendorReason(String decryptedData, String fallback) {
+        if (decryptedData == null || decryptedData.isBlank()) {
+            return fallback;
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(decryptedData);
+            com.fasterxml.jackson.databind.JsonNode reason = node == null ? null : node.get("responseMessage");
+            if (reason != null && !reason.isNull() && !reason.asText().isBlank()) {
+                return reason.asText().trim();
+            }
+        } catch (Exception ignored) {
+            // not JSON: keep the outer message
+        }
+        return fallback;
+    }
+
     private BigDecimal parseBigDecimal(Object o) {
         if (o == null) return null;
         try {

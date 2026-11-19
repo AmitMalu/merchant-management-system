@@ -17,7 +17,9 @@ import java.time.LocalDateTime;
         indexes = {
                 @Index(name = "idx_payout_ref", columnList = "merchant_ref_id"),
                 @Index(name = "idx_payout_vendor_txn", columnList = "vendor_txn_id"),
-                @Index(name = "idx_payout_initiator", columnList = "initiator_type,initiator_id,created_at DESC")
+                @Index(name = "idx_payout_initiator", columnList = "initiator_type,initiator_id,created_at DESC"),
+                // the daily / monthly / yearly limit checks add up one vendor's payouts since a date
+                @Index(name = "idx_payout_vendor_created", columnList = "vendor_id,created_at")
         },
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_merchant_ref", columnNames = {"merchant_ref_id"})
@@ -66,6 +68,13 @@ public class PayoutTransaction {
 
     @Column(name = "beneficiary_bank", nullable = false)
     private String beneficiaryBank;
+
+    // The same details in plain words, not tied to one vendor's codes (kept for a later vendor).
+    @Column(name = "beneficiary_bank_name", length = 150)
+    private String beneficiaryBankName;
+
+    @Column(name = "beneficiary_state_name", length = 100)
+    private String beneficiaryStateName;
 
     @Column(name = "beneficiary_mobile")
     private String beneficiaryMobile;
@@ -179,6 +188,12 @@ public class PayoutTransaction {
 
     public String getBeneficiaryIFSC() { return beneficiaryIFSC; }
     public void setBeneficiaryIFSC(String beneficiaryIFSC) { this.beneficiaryIFSC = beneficiaryIFSC; }
+
+    public String getBeneficiaryBankName() { return beneficiaryBankName; }
+    public void setBeneficiaryBankName(String beneficiaryBankName) { this.beneficiaryBankName = beneficiaryBankName; }
+
+    public String getBeneficiaryStateName() { return beneficiaryStateName; }
+    public void setBeneficiaryStateName(String beneficiaryStateName) { this.beneficiaryStateName = beneficiaryStateName; }
 
     public String getBeneficiaryBank() { return beneficiaryBank; }
     public void setBeneficiaryBank(String beneficiaryBank) { this.beneficiaryBank = beneficiaryBank; }

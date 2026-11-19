@@ -15,6 +15,10 @@ public class PayoutRequest {
     private String paymentMode; // "IMPS", "NEFT", "RTGS"
     private String paymentPurpose; // code from purpose master
     private String beneficiaryBank; // code from bank master
+
+    // The same details in plain words, not tied to one vendor's codes (kept for a later vendor).
+    private String beneficiaryBankName;
+    private String beneficiaryStateName;
     private String beneficiaryAccountNumber;
     private String beneficiaryIFSC;
     private String beneficiaryMobileNumber;
@@ -42,6 +46,12 @@ public class PayoutRequest {
 
     public String getPaymentPurpose() { return paymentPurpose; }
     public void setPaymentPurpose(String paymentPurpose) { this.paymentPurpose = paymentPurpose; }
+
+    public String getBeneficiaryBankName() { return beneficiaryBankName; }
+    public void setBeneficiaryBankName(String beneficiaryBankName) { this.beneficiaryBankName = beneficiaryBankName; }
+
+    public String getBeneficiaryStateName() { return beneficiaryStateName; }
+    public void setBeneficiaryStateName(String beneficiaryStateName) { this.beneficiaryStateName = beneficiaryStateName; }
 
     public String getBeneficiaryBank() { return beneficiaryBank; }
     public void setBeneficiaryBank(String beneficiaryBank) { this.beneficiaryBank = beneficiaryBank; }

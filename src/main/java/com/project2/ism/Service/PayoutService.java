@@ -10,6 +10,7 @@ import com.project2.ism.Model.Payment.PaymentVendorResponseLog;
 import com.project2.ism.Model.Payout.PayoutTransaction;
 import com.project2.ism.Model.Payment.VendorBank;
 import com.project2.ism.Model.Payment.VendorState;
+import com.project2.ism.Model.Payout.PaymentAttempt;
 import com.project2.ism.Model.Payout.PayoutBanks;
 import com.project2.ism.Model.Users.Franchise;
 import com.project2.ism.Model.Users.Merchant;
@@ -42,6 +43,13 @@ public class PayoutService {
     @Value("${payout.default.vendor.id}")
     private Long defaultPayoutVendorId; // ViMoPay - TODO: Make dynamic when multiple vendors available
 
+    /** ViMoPay refuses payouts under Rs 100 and at or above Rs 1 lakh (its API document). Checked before any debit. */
+    @Value("${payout.min-amount:100}")
+    private BigDecimal payoutMinAmount = new BigDecimal("100");
+
+    @Value("${payout.max-amount:99999}")
+    private BigDecimal payoutMaxAmount = new BigDecimal("99999");
+
     private final PayoutTransactionRepository payoutTxnRepo;
     private final MerchantWalletRepository merchantWalletRepo;
     private final FranchiseWalletRepository franchiseWalletRepo;
@@ -62,6 +70,11 @@ public class PayoutService {
     private final com.project2.ism.Service.Monitoring.AlertService alertService;
     private final FeatureAccessService featureAccess;
 
+
+    // Routing trial run: records which vendor routing WOULD choose, next to the vendor really used. It never
+    // throws and never changes the payment. Optional, so a missing bean can never stop the application.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PaymentRoutingTrialService routingTrial;
 
     public PayoutService(PayoutTransactionRepository payoutTxnRepo,
                          MerchantWalletRepository merchantWalletRepo,
@@ -175,6 +188,12 @@ public class PayoutService {
             // 6. Record in ledger (DEBIT entry)
             recordInLedger(payoutTxn, remainingBalance);
             request.setMerchantRefId(payoutTxn.getMerchantRefId());
+
+            // Trial run only: note which vendor routing would choose. Does not change this payout.
+            if (routingTrial != null) {
+                routingTrial.recordPayout(request.getInitiatorType(), request.getInitiatorId(), request.getAmount(),
+                        vendorId, payoutTxn.getMerchantRefId());
+            }
 
             // Transaction Monitoring: record initiation so velocity rules can
             // count attempts even before the vendor responds.
@@ -377,7 +396,7 @@ public class PayoutService {
                 callback.getMerchantRefId(), callback.getTxnStatus(), callback.getTxnId());
 
         try {
-            PayoutTransaction payoutTxn = payoutTxnRepo.findByMerchantRefId(callback.getMerchantRefId())
+            PayoutTransaction payoutTxn = payoutTxnRepo.findByMerchantRefIdForUpdate(callback.getMerchantRefId())
                     .orElseThrow(() -> new IllegalArgumentException(
                             "Payout transaction not found: " + callback.getMerchantRefId()));
 
@@ -415,6 +434,461 @@ public class PayoutService {
                     callback.getMerchantRefId(), e.getMessage(), e);
             throw new RuntimeException("Callback processing failed", e);
         }
+    }
+
+    // ==================== PAYOUT FLOW V2 (Phase 3) ====================
+    //
+    // The same rules as initiatePayout, in a safer order: the debit is COMMITTED first, the vendor is called with
+    // no transaction and no wallet lock, and the answer is applied in a second short transaction. It is used only
+    // when the payout engine switch says so (see PayoutEngine). The flow above is untouched.
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private java.util.List<PayoutVendorAdapter> payoutAdapters;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PaymentAttemptRepository attemptRepo;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.transaction.PlatformTransactionManager txManager;
+
+    /** Picks the vendor from the account's routing, only when "Use routing for payouts" is on. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PayoutRoutingPlanner routingPlanner;
+
+    private org.springframework.transaction.support.TransactionTemplate v2Template;
+
+    private org.springframework.transaction.support.TransactionTemplate v2Tx() {
+        if (v2Template == null) {
+            v2Template = new org.springframework.transaction.support.TransactionTemplate(txManager);
+        }
+        return v2Template;
+    }
+
+    private PayoutVendorAdapter adapterFor(Long vendorId) {
+        if (payoutAdapters == null) {
+            return null;
+        }
+        for (PayoutVendorAdapter a : payoutAdapters) {
+            if (a.supports(vendorId)) {
+                return a;
+            }
+        }
+        return null;
+    }
+
+    /** Is everything the new flow needs in place for this vendor? If not, the old flow is used. */
+    public boolean v2Available(Long vendorId) {
+        return attemptRepo != null && txManager != null && adapterFor(vendorId) != null;
+    }
+
+    /** The account a saved bank belongs to, or null (the old flow then reports the problem as it always did). */
+    @Transactional(readOnly = true)
+    public CustomerRef savedBankOwner(Long payoutBankId) {
+        if (payoutBankId == null) {
+            return null;
+        }
+        return payoutBanksRepo.findByIdAndVerifiedTrue(payoutBankId)
+                .map(b -> new CustomerRef(b.getCustomerType(), b.getCustomerId()))
+                .orElse(null);
+    }
+
+    /** The full payout request for a saved bank (the same conversion initiateSimplePayout does). */
+    @Transactional(readOnly = true)
+    public PayoutRequest toPayoutRequest(SimplePayoutRequest simpleRequest) {
+        PayoutBanks bank = payoutBanksRepo.findByIdAndVerifiedTrue(simpleRequest.getPayoutBankId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Bank account not found or not verified: " + simpleRequest.getPayoutBankId()));
+
+        String stateCode = getStateCode(bank.getStateName());
+        String bankCode = getBankCode(bank.getBankName());
+        String paymentPurpose = simpleRequest.getPaymentPurpose() != null
+                ? simpleRequest.getPaymentPurpose()
+                : "004"; // Default purpose code
+
+        PayoutRequest fullRequest = new PayoutRequest();
+        fullRequest.setInitiatorType(bank.getCustomerType());
+        fullRequest.setInitiatorId(bank.getCustomerId());
+        fullRequest.setAmount(simpleRequest.getAmount());
+        fullRequest.setPaymentMode(simpleRequest.getPaymentMode());
+        fullRequest.setPaymentPurpose(paymentPurpose);
+        fullRequest.setBeneficiaryBank(bankCode);
+        fullRequest.setBeneficiaryBankName(bank.getBankName());
+        fullRequest.setBeneficiaryStateName(bank.getStateName());
+        fullRequest.setBeneficiaryAccountNumber(bank.getAccountNumber());
+        fullRequest.setBeneficiaryIFSC(bank.getIfscCode());
+        fullRequest.setBeneficiaryMobileNumber(
+                resolveBeneficiaryMobile(bank.getCustomerType(), bank.getCustomerId()));
+        fullRequest.setBeneficiaryLocation(stateCode);
+        fullRequest.setBeneficiaryName(bank.getHolderName());
+        fullRequest.setLat("19.0760");       // Mumbai lat
+        fullRequest.setLongitude("72.8777"); // Mumbai long
+        fullRequest.setUdf1(simpleRequest.getUdf1());
+        fullRequest.setUdf2(simpleRequest.getUdf2());
+        fullRequest.setUdf3(simpleRequest.getUdf3());
+        return fullRequest;
+    }
+
+    /** vendorId: the vendor this payout goes to (routing may have chosen it); tries/waitSeconds: from the routing. */
+    private record PreparedV2(Long payoutId, Long attemptId, String merchantRefId, BigDecimal charges,
+                              BigDecimal totalDeduction, BigDecimal remainingBalance,
+                              Long vendorId, int tries, int waitSeconds) {
+
+        PreparedV2 withAttempt(Long newAttemptId) {
+            return new PreparedV2(payoutId, newAttemptId, merchantRefId, charges, totalDeduction, remainingBalance,
+                    vendorId, tries, waitSeconds);
+        }
+    }
+
+    /** The longest pause between two tries, whatever the routing says. */
+    private static final int MAX_RETRY_WAIT_SECONDS = 10;
+
+    /**
+     * Not @Transactional on purpose: it runs its own short transactions. Call it through the PayoutEngine.
+     */
+    public PayoutResult initiatePayoutV2(PayoutRequest request, Long vendorId) {
+        log.info("Initiating payout (V2) for initiator={} type={} amount={}",
+                request.getInitiatorId(), request.getInitiatorType(), request.getAmount());
+
+        PayoutVendorAdapter adapter = adapterFor(vendorId);
+        if (adapter == null || attemptRepo == null || txManager == null) {
+            return PayoutResult.failed(null, "Payout is not available right now. Please try again later.");
+        }
+
+        // ---- Step 1: check, charge, debit, create the payout (pending) and its attempt; COMMIT ----
+        final PreparedV2 prepared;
+        try {
+            prepared = v2Tx().execute(status -> prepareV2(request, vendorId));
+        } catch (Exception e) {
+            // rolled back: nothing was debited
+            log.error("Payout (V2) could not start for ref={}: {}", request.getMerchantRefId(), e.getMessage(), e);
+            return PayoutResult.failed(request.getMerchantRefId(), e.getMessage());
+        }
+
+        // Trial run only: note which vendor routing would choose. Does not change this payout.
+        if (routingTrial != null) {
+            routingTrial.recordPayout(request.getInitiatorType(), request.getInitiatorId(), request.getAmount(),
+                    prepared.vendorId(), prepared.merchantRefId());
+        }
+
+        // ---- Step 2: call the vendor, outside any transaction and without any wallet lock ----
+        // A try the vendor clearly did not take (NOT_PROCESSED) is repeated on the same vendor, with a short wait,
+        // up to the routing's retry count, always with the same reference. Any other answer is final here.
+        PayoutVendorAdapter useAdapter = adapterFor(prepared.vendorId());
+        PreparedV2 current = prepared;
+        PayoutVendorAdapter.AttemptResult answer;
+        int attemptNo = 1;
+        while (true) {
+            try {
+                answer = useAdapter.submit(prepared.vendorId(), request, prepared.charges());
+            } catch (Exception e) {
+                log.error("Payout (V2): the vendor call broke, outcome unknown | ref={} | error={}",
+                        prepared.merchantRefId(), e.getMessage(), e);
+                answer = PayoutVendorAdapter.AttemptResult.unknown(e.getMessage());
+            }
+            if (answer.outcome() != PayoutVendorAdapter.Outcome.NOT_PROCESSED || attemptNo >= prepared.tries()) {
+                break;
+            }
+            try {
+                final PreparedV2 closing = current;
+                final PayoutVendorAdapter.AttemptResult notTaken = answer;
+                final int nextNo = attemptNo + 1;
+                log.warn("Payout (V2): try {} not taken by the vendor, trying again | ref={} | message={}",
+                        attemptNo, prepared.merchantRefId(), notTaken.message());
+                v2Tx().execute(status -> closeTry(closing, notTaken));
+                sleepBetweenTries(prepared.waitSeconds());
+                Long nextAttemptId = v2Tx().execute(status -> openTry(closing, nextNo));
+                current = current.withAttempt(nextAttemptId);
+                attemptNo = nextNo;
+            } catch (Exception e) {
+                // Could not record the next try: stop here. The last answer is applied below, so the payout
+                // ends as a refunded failure (the vendor did not take any try).
+                log.error("Payout (V2): could not start the next try | ref={} | error={}",
+                        prepared.merchantRefId(), e.getMessage(), e);
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                break;
+            }
+        }
+
+        // ---- Step 3: apply the answer in a new short transaction ----
+        final PayoutVendorAdapter.AttemptResult finalAnswer = answer;
+        final PreparedV2 last = current;
+        try {
+            return v2Tx().execute(status -> finishV2(last, finalAnswer));
+        } catch (Exception e) {
+            // The debit is already committed and the payout is PENDING, so nothing is lost; the stuck-pending
+            // alert and the admin screens show it. Log what is needed to check it by hand.
+            log.error("PAYOUT (V2) NEEDS MANUAL CHECK | ref={} | outcome={} | vendorTxnId={} | error={}",
+                    prepared.merchantRefId(), finalAnswer.outcome(), finalAnswer.vendorTxnId(), e.getMessage(), e);
+            return processingResult(prepared, request.getAmount());
+        }
+    }
+
+    /** A try the vendor did not take: record it as failed (the payout itself stays pending for the next try). */
+    private Void closeTry(PreparedV2 p, PayoutVendorAdapter.AttemptResult answer) {
+        PaymentAttempt attempt = attemptRepo.findById(p.attemptId()).orElse(null);
+        if (attempt != null) {
+            attempt.setStatus(PaymentAttempt.FAILED);
+            attempt.setResponseCode(answer.responseCode());
+            attempt.setMessage(answer.message());
+            attempt.setCompletedAt(LocalDateTime.now());
+            attemptRepo.save(attempt);
+        }
+        return null;
+    }
+
+    /** The next try on the same vendor, with the same reference. */
+    private Long openTry(PreparedV2 p, int attemptNo) {
+        PaymentAttempt next = new PaymentAttempt();
+        next.setSourceType(PaymentAttempt.SOURCE_PAYOUT);
+        next.setSourceId(p.payoutId());
+        next.setAttemptNo(attemptNo);
+        next.setVendorId(p.vendorId());
+        next.setVendorReference(p.merchantRefId());
+        next.setStatus(PaymentAttempt.CREATED);
+        return attemptRepo.save(next).getId();
+    }
+
+    private static void sleepBetweenTries(int seconds) throws InterruptedException {
+        int s = Math.min(Math.max(seconds, 0), MAX_RETRY_WAIT_SECONDS);
+        if (s > 0) {
+            Thread.sleep(s * 1000L);
+        }
+    }
+
+    private PreparedV2 prepareV2(PayoutRequest request, Long vendorId) {
+        // The Payout switch (Merchant Settings) must be on, checked before anything moves.
+        featureAccess.requirePayoutEnabled(new CustomerRef(request.getInitiatorType(), request.getInitiatorId()));
+
+        request.setBeneficiaryName(sanitizeBeneficiaryName(request.getBeneficiaryName()));
+
+        String blockedKeyword = BeneficiaryNameValidator.findBlockedKeyword(request.getBeneficiaryName());
+        if (blockedKeyword != null) {
+            log.warn("Payout blocked, possible current account | initiator={} type={} beneficiary={} matchedKeyword={}",
+                    request.getInitiatorId(), request.getInitiatorType(),
+                    request.getBeneficiaryName(), blockedKeyword);
+            throw new IllegalArgumentException(
+                    BeneficiaryNameValidator.blockedMessage(request.getBeneficiaryName()));
+        }
+
+        validatePayoutSettings(request);
+
+        // Which vendor serves this payout. Without "Use routing for payouts" (the default) it is the fixed
+        // vendor, one try, exactly as before. With it, the account's routing decides, and the vendor's limits
+        // are checked here, before any money moves (a refusal costs the merchant nothing).
+        Long useVendorId = vendorId;
+        int tries = 1;
+        int waitSeconds = 0;
+        if (routingPlanner != null) {
+            PayoutRoutingPlanner.Choice choice = routingPlanner.choose(request.getInitiatorType(),
+                    request.getInitiatorId(), request.getAmount(), vendorId, id -> adapterFor(id) != null);
+            useVendorId = choice.vendorId();
+            tries = choice.tries();
+            waitSeconds = choice.waitSeconds();
+        }
+
+        BigDecimal charges = paymentChargeService.calculateCharges(
+                request.getAmount(), request.getPaymentMode(), request.getInitiatorId());
+        BigDecimal totalDeduction = request.getAmount().add(charges);
+
+        BigDecimal remainingBalance;
+        if ("MERCHANT".equals(request.getInitiatorType())) {
+            remainingBalance = validateAndDeductMerchantBalance(request.getInitiatorId(), totalDeduction);
+        } else if ("FRANCHISE".equals(request.getInitiatorType())) {
+            remainingBalance = validateAndDeductFranchiseBalance(request.getInitiatorId(), totalDeduction);
+        } else {
+            throw new IllegalArgumentException("Invalid initiator type: " + request.getInitiatorType());
+        }
+
+        PayoutTransaction payoutTxn = createPayoutTransaction(request, charges, useVendorId);
+        recordInLedger(payoutTxn, remainingBalance);
+        request.setMerchantRefId(payoutTxn.getMerchantRefId());
+
+        transactionEventService.recordEvent(TransactionSourceType.PAYOUT, payoutTxn.getId(),
+                request.getInitiatorType(), request.getInitiatorId(), totalDeduction,
+                TransactionEventStatus.PENDING, "paymentMode=" + request.getPaymentMode());
+
+        PaymentAttempt attempt = new PaymentAttempt();
+        attempt.setSourceType(PaymentAttempt.SOURCE_PAYOUT);
+        attempt.setSourceId(payoutTxn.getId());
+        attempt.setAttemptNo(1);
+        attempt.setVendorId(useVendorId);
+        attempt.setVendorReference(payoutTxn.getMerchantRefId());
+        attempt.setStatus(PaymentAttempt.CREATED);
+        attempt = attemptRepo.save(attempt);
+
+        return new PreparedV2(payoutTxn.getId(), attempt.getId(), payoutTxn.getMerchantRefId(), charges,
+                totalDeduction, remainingBalance, useVendorId, tries, waitSeconds);
+    }
+
+    private PayoutResult finishV2(PreparedV2 p, PayoutVendorAdapter.AttemptResult answer) {
+        // Locked read: a vendor callback for this payout waits for us, and we wait for it.
+        PayoutTransaction txn = payoutTxnRepo.findByIdForUpdate(p.payoutId())
+                .orElseThrow(() -> new IllegalStateException("Payout not found: " + p.payoutId()));
+
+        PaymentAttempt attempt = attemptRepo.findById(p.attemptId()).orElse(null);
+        if (attempt != null) {
+            attempt.setStatus(attemptStatus(answer.outcome()));
+            attempt.setVendorTxnId(answer.vendorTxnId());
+            attempt.setResponseCode(answer.responseCode());
+            attempt.setMessage(answer.message());
+            if (answer.outcome() == PayoutVendorAdapter.Outcome.SUCCESS
+                    || answer.outcome() == PayoutVendorAdapter.Outcome.FAILED
+                    || answer.outcome() == PayoutVendorAdapter.Outcome.NOT_PROCESSED) {
+                attempt.setCompletedAt(LocalDateTime.now());
+            }
+            attemptRepo.save(attempt);
+        }
+
+        // Nobody knows if the vendor got it: keep the debit and the pending payout (like the old flow does when
+        // the vendor call breaks); the stuck-pending alert and the admin screens show it.
+        if (answer.outcome() == PayoutVendorAdapter.Outcome.UNKNOWN) {
+            log.error("PAYOUT (V2) OUTCOME UNKNOWN, left pending for a manual check | ref={} | message={}",
+                    p.merchantRefId(), answer.message());
+            return processingResult(p, txn.getAmount());
+        }
+
+        // A callback may already have settled this payout; the immediate answer must never overwrite it.
+        if (txn.getStatus() == PayoutTransaction.PayoutStatus.SUCCESS
+                || txn.getStatus() == PayoutTransaction.PayoutStatus.FAILED) {
+            log.warn("Payout (V2): already {} before the immediate answer ({}) was applied, answer ignored | ref={}",
+                    txn.getStatus(), answer.outcome(), p.merchantRefId());
+            // the try must agree with the payout's final state, not with the answer that was ignored
+            if (attempt != null) {
+                attempt.setStatus(txn.getStatus() == PayoutTransaction.PayoutStatus.SUCCESS
+                        ? PaymentAttempt.SUCCESS : PaymentAttempt.FAILED);
+                attempt.setCompletedAt(LocalDateTime.now());
+                attemptRepo.save(attempt);
+            }
+            PayoutResult settled = new PayoutResult();
+            settled.setStatus(txn.getStatus() == PayoutTransaction.PayoutStatus.SUCCESS ? "OK" : "FAILED");
+            settled.setMessage(txn.getResponseMessage());
+            settled.setTxnId(txn.getVendorTxnId());
+            settled.setMerchantRefId(p.merchantRefId());
+            settled.setAmount(txn.getAmount());
+            settled.setCharges(p.charges());
+            settled.setTotalDeducted(p.totalDeduction());
+            settled.setRemainingBalance(p.remainingBalance());
+            return settled;
+        }
+
+        PayoutResult vendorResult = new PayoutResult();
+        vendorResult.setStatus(switch (answer.outcome()) {
+            case SUCCESS -> "OK";
+            case PENDING -> "PENDING";
+            default -> "FAILED";
+        });
+        vendorResult.setMessage(answer.message());
+        vendorResult.setTxnId(answer.vendorTxnId());
+        vendorResult.setRrn(answer.rrn());
+        vendorResult.setVendorCharges(answer.vendorCharges());
+        vendorResult.setMerchantRefId(p.merchantRefId());
+        vendorResult.setAmount(txn.getAmount());
+        vendorResult.setTotalDeducted(p.totalDeduction());
+
+        updatePayoutWithVendorResponse(txn, vendorResult);
+
+        transactionEventService.recordEvent(TransactionSourceType.PAYOUT, txn.getId(),
+                txn.getInitiatorType(), txn.getInitiatorId(), p.totalDeduction(),
+                mapPayoutStatus(vendorResult.getStatus()), "vendorTxnId=" + answer.vendorTxnId());
+
+        log.info("Payout (V2) answered: ref={} vendorTxnId={} status={}",
+                p.merchantRefId(), answer.vendorTxnId(), vendorResult.getStatus());
+
+        // a clear failure: refund now (the refund routine refunds only once)
+        if ("FAILED".equals(vendorResult.getStatus())) {
+            refundToWallet(txn);
+        }
+
+        vendorResult.setCharges(p.charges());
+        vendorResult.setRemainingBalance(p.remainingBalance());
+        return vendorResult;
+    }
+
+    /**
+     * A callback (or a late answer) settled the payout, so a try that is still open (PENDING / CREATED / UNKNOWN)
+     * is closed with the same result. Runs only after the callback's own transaction has committed, in a
+     * transaction of its own, and never throws: a problem here can never undo the payout or its refund.
+     */
+    private void closeAttemptsAfterCommit(PayoutTransaction txn) {
+        if (attemptRepo == null || txManager == null || txn == null || txn.getId() == null) {
+            return;
+        }
+        PayoutTransaction.PayoutStatus s = txn.getStatus();
+        if (s != PayoutTransaction.PayoutStatus.SUCCESS && s != PayoutTransaction.PayoutStatus.FAILED) {
+            return;
+        }
+        final Long payoutId = txn.getId();
+        final String attemptStatus = s == PayoutTransaction.PayoutStatus.SUCCESS
+                ? PaymentAttempt.SUCCESS : PaymentAttempt.FAILED;
+        final String message = txn.getResponseMessage();
+        final String code = txn.getStatusCode();
+        final String vendorTxnId = txn.getVendorTxnId();
+        Runnable work = () -> closeAttempts(payoutId, attemptStatus, message, code, vendorTxnId);
+
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            work.run();
+                        }
+                    });
+        } else {
+            work.run();
+        }
+    }
+
+    void closeAttempts(Long payoutId, String attemptStatus, String message, String code, String vendorTxnId) {
+        try {
+            org.springframework.transaction.support.TransactionTemplate template =
+                    new org.springframework.transaction.support.TransactionTemplate(txManager);
+            template.setPropagationBehavior(
+                    org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.execute(status -> {
+                for (PaymentAttempt a : attemptRepo.findBySourceTypeAndSourceIdOrderByAttemptNoAsc(
+                        PaymentAttempt.SOURCE_PAYOUT, payoutId)) {
+                    boolean open = PaymentAttempt.PENDING.equals(a.getStatus())
+                            || PaymentAttempt.CREATED.equals(a.getStatus())
+                            || PaymentAttempt.UNKNOWN.equals(a.getStatus());
+                    if (!open) {
+                        continue;
+                    }
+                    a.setStatus(attemptStatus);
+                    a.setCompletedAt(LocalDateTime.now());
+                    if (message != null && !message.isBlank()) {
+                        a.setMessage(message);
+                    }
+                    if (code != null) {
+                        a.setResponseCode(code);
+                    }
+                    if (a.getVendorTxnId() == null && vendorTxnId != null) {
+                        a.setVendorTxnId(vendorTxnId);
+                    }
+                    attemptRepo.save(a);
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            log.warn("Payout attempts could not be closed for payout {} (the payout itself is fine): {}",
+                    payoutId, e.toString());
+        }
+    }
+
+    private PayoutResult processingResult(PreparedV2 p, BigDecimal amount) {
+        PayoutResult r = PayoutResult.pending(null, p.merchantRefId(), amount, p.charges(), null, p.remainingBalance());
+        r.setMessage("Your payout is being processed. Its status will be updated shortly.");
+        return r;
+    }
+
+    private static String attemptStatus(PayoutVendorAdapter.Outcome outcome) {
+        return switch (outcome) {
+            case SUCCESS -> PaymentAttempt.SUCCESS;
+            case PENDING -> PaymentAttempt.PENDING;
+            case FAILED, NOT_PROCESSED -> PaymentAttempt.FAILED;
+            case UNKNOWN -> PaymentAttempt.UNKNOWN;
+        };
     }
 
     // ==================== VALIDATION METHODS ====================
@@ -510,6 +984,8 @@ public class PayoutService {
         txn.setBeneficiaryBank(request.getBeneficiaryBank());
         txn.setBeneficiaryMobile(request.getBeneficiaryMobileNumber());
         txn.setBeneficiaryLocation(request.getBeneficiaryLocation());
+        txn.setBeneficiaryBankName(request.getBeneficiaryBankName());
+        txn.setBeneficiaryStateName(request.getBeneficiaryStateName());
         txn.setLatitude(request.getLat());
         txn.setLongitude(request.getLongitude());
         txn.setUdf1(request.getUdf1());
@@ -629,6 +1105,9 @@ public class PayoutService {
         // "002" or "Pending" keeps status as PENDING
 
         payoutTxnRepo.save(payoutTxn);
+
+        // The new flow records each try on the vendor; close the open one now that the payout is final.
+        closeAttemptsAfterCommit(payoutTxn);
 
         // Transaction Monitoring: record the callback-driven status change
         // (async path — the payout came back PENDING synchronously earlier
@@ -775,6 +1254,15 @@ public class PayoutService {
     }
 
     private void refundToWallet(PayoutTransaction payoutTxn) {
+        // Refund only once: if this payout already has its refund ledger row, never credit the wallet again.
+        boolean alreadyRefunded = "MERCHANT".equals(payoutTxn.getInitiatorType())
+                ? payoutTxn.getLedgerRefundMerchantTxnId() != null
+                : payoutTxn.getLedgerRefundFranchiseTxnId() != null;
+        if (alreadyRefunded) {
+            log.warn("Refund skipped, this payout was already refunded: ref={}", payoutTxn.getMerchantRefId());
+            return;
+        }
+
         log.info("Refunding failed payout: ref={} amount={}",
                 payoutTxn.getMerchantRefId(), payoutTxn.getTotalDeducted());
 
@@ -980,8 +1468,23 @@ public class PayoutService {
         return value == null ? BigDecimal.ZERO : value;
     }
 
+    /** Refuses an amount the vendor would refuse anyway, so nothing is debited and refunded for nothing. */
+    void validateAmountLimits(BigDecimal amount) {
+        if (amount == null) {
+            throw new IllegalArgumentException("Payout amount is required.");
+        }
+        if (amount.compareTo(payoutMinAmount) < 0 || amount.compareTo(payoutMaxAmount) > 0) {
+            throw new IllegalArgumentException("Payout amount must be between Rs "
+                    + payoutMinAmount.stripTrailingZeros().toPlainString() + " and Rs "
+                    + payoutMaxAmount.stripTrailingZeros().toPlainString() + ".");
+        }
+    }
+
     private void validatePayoutSettings(
             PayoutRequest request) {
+
+        // Before any wallet is read or touched.
+        validateAmountLimits(request.getAmount());
 
         if ("MERCHANT".equalsIgnoreCase(request.getInitiatorType())) {
 

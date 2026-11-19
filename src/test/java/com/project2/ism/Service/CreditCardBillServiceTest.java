@@ -120,6 +120,25 @@ class CreditCardBillServiceTest {
              "data":{"txn_id":"TXN1","wallet_txn_id":"SP999","api_ref_number":"APPRF1"}}""";
 
     @Test
+    void whenRoutingSendsTheAccountToTheOtherVendor_everySuivrePayStepIsRefusedBeforeMoneyMoves() {
+        CreditCardRouteGuard guard = mock(CreditCardRouteGuard.class);
+        when(guard.blocks(WHO, CreditCardRouteGuard.SUIVREPAY)).thenReturn(true);
+        ReflectionTestUtils.setField(service, "routeGuard", guard);
+
+        for (org.junit.jupiter.api.function.Executable step : new org.junit.jupiter.api.function.Executable[]{
+                () -> service.getBillers(WHO),
+                () -> service.fetchBill(WHO, null),
+                () -> service.quote(WHO, null),
+                () -> service.payBill(WHO, new PayBillRequest(REQ, null))}) {
+            CreditCardBillException e = assertThrows(CreditCardBillException.class, step);
+            assertEquals(org.springframework.http.HttpStatus.FORBIDDEN, e.getStatus());
+            assertEquals(CreditCardRouteGuard.NOT_AVAILABLE, e.getMessage());
+        }
+        verifyNoInteractions(client);
+        assertEquals(new BigDecimal("10000.00"), wallet.getAvailableBalance());
+    }
+
+    @Test
     void success_keepsMoneyDeducted_andMarksSuccess() throws Exception {
         when(client.post(eq("/pay"), any(), any())).thenReturn(resp(200, PAY_OK));
 
