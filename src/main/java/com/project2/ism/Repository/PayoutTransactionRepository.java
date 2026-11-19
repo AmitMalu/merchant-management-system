@@ -20,6 +20,15 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
 
     Optional<PayoutTransaction> findByMerchantRefId(String merchantRefId);
 
+    // Locked reads: a vendor callback and the end of a payout (V2) must not overwrite each other.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM PayoutTransaction p WHERE p.id = :id")
+    Optional<PayoutTransaction> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM PayoutTransaction p WHERE p.merchantRefId = :ref")
+    Optional<PayoutTransaction> findByMerchantRefIdForUpdate(@Param("ref") String ref);
+
     /** One vendor that has payouts (for the vendor filter of the Payout Transaction report). */
     interface PayoutVendorRow {
         Long getId();
@@ -31,6 +40,18 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
             + "FROM payout_transactions p JOIN payment_vendors v ON v.id = p.vendor_id "
             + "ORDER BY v.vendor_name", nativeQuery = true)
     List<PayoutVendorRow> findPayoutVendors();
+
+    /** What one vendor has taken today: how many payouts and how much. Pending and successful ones count. */
+    interface DailyUsage {
+        Long getCount();
+
+        java.math.BigDecimal getTotal();
+    }
+
+    @Query("SELECT COUNT(p) AS count, SUM(p.amount) AS total FROM PayoutTransaction p "
+            + "WHERE p.vendorId = :vendorId AND p.createdAt >= :from AND p.status IN :statuses")
+    DailyUsage dailyUsage(@Param("vendorId") Long vendorId, @Param("from") LocalDateTime from,
+                          @Param("statuses") java.util.Collection<PayoutTransaction.PayoutStatus> statuses);
 
     boolean existsByMerchantRefId(String merchantRefId);
 

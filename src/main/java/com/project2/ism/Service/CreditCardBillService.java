@@ -154,6 +154,21 @@ public class CreditCardBillService {
     private final FranchiseTransDetRepository franchiseTransDetRepository;
     private final FeatureAccessService featureAccess;
 
+    // Routing trial run: records which vendor routing WOULD choose, next to the vendor really used. It never
+    // throws and never changes the payment. Optional, so a missing bean can never stop the application.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PaymentRoutingTrialService routingTrial;
+
+    /** When "credit card follows routing" is on and routing sends this account to the other vendor, refuse. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CreditCardRouteGuard routeGuard;
+
+    private void requireRoutedHere(CustomerRef who) {
+        if (routeGuard != null && routeGuard.blocks(who, CreditCardRouteGuard.SUIVREPAY)) {
+            throw new CreditCardBillException(HttpStatus.FORBIDDEN, CreditCardRouteGuard.NOT_AVAILABLE);
+        }
+    }
+
     public CreditCardBillService(SuivrePayClient client,
                                  CreditCardBillTransactionRepository repository,
                                  MerchantWalletRepository merchantWalletRepository,
@@ -186,6 +201,7 @@ public class CreditCardBillService {
 
     public List<Biller> getBillers(CustomerRef who) {
         featureAccess.requireCreditCardEnabled(who);
+        requireRoutedHere(who);
 
         log.info("Credit card billers requested | {}", who.label());
         VendorResponse response = client.post(billersPath, null,
@@ -215,6 +231,7 @@ public class CreditCardBillService {
 
     public FetchedBill fetchBill(CustomerRef who, FetchBillRequest request) {
         featureAccess.requireCreditCardEnabled(who);
+        requireRoutedHere(who);
 
         if (request == null || isBlank(request.billerId())) {
             throw new IllegalArgumentException("Please select a biller.");
@@ -333,6 +350,7 @@ public class CreditCardBillService {
      */
     public Quote quote(CustomerRef who, QuoteRequest request) {
         featureAccess.requireCreditCardEnabled(who);
+        requireRoutedHere(who);
 
         if (request == null || isBlank(request.requestId())) {
             throw new IllegalArgumentException("Please fetch the bill first.");
@@ -409,6 +427,7 @@ public class CreditCardBillService {
     public PaymentResult payBill(CustomerRef who, PayBillRequest request) {
         // Before anything else: the switch must be on. Nothing is debited if it is off.
         featureAccess.requireCreditCardEnabled(who);
+        requireRoutedHere(who);
 
         if (request == null || isBlank(request.requestId())) {
             throw new IllegalArgumentException("Please fetch the bill first.");
@@ -434,6 +453,11 @@ public class CreditCardBillService {
         final String panFinal = pan;
         final BigDecimal requestedAmount = request.amount();
         Prepared prepared = tx.execute(status -> prepareDebit(who, requestId, panFinal, requestedAmount));
+
+        // Trial run only: note which vendor routing would choose. Does not change this payment.
+        if (routingTrial != null) {
+            routingTrial.recordSuivrePay(who.type(), who.id(), prepared.amount(), prepared.requestId());
+        }
 
         // ---- Step 2: call SuivrePay, outside any transaction ----
         VendorResponse response = null;

@@ -157,6 +157,21 @@ class BbpsPaymentQuoteTest {
     }
 
     @Test
+    void whenCreditCardFollowsRouting_theBillAvenueCreditCardQuoteIsRefused_butOtherCategoriesAreNot() {
+        CreditCardRouteGuard guard = mock(CreditCardRouteGuard.class);
+        when(guard.blocksBillAvenueCreditCard(5L, "Credit Card")).thenReturn(true);
+        ReflectionTestUtils.setField(service, "creditCardRoute", guard);
+        when(charges.calculateCharges(any(), eq("BBPS_ELECTRICITY"), eq(5L))).thenReturn(new BigDecimal("7"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.quote(5L, new BigDecimal("1000"), null, CARD));
+        assertEquals(CreditCardRouteGuard.NOT_AVAILABLE, ex.getMessage());
+        verify(charges, never()).calculateCharges(any(), eq("BBPS_CREDIT_CARD"), any());
+
+        assertEquals(new BigDecimal("1007"), service.quote(5L, new BigDecimal("1000"), null, ELEC).get("totalDebit"));
+    }
+
+    @Test
     void categoryNamesBecomeModeCodes_ignoringCaseSpacesAndSymbols() {
         when(charges.paymentModeExists("BBPS_GAS_LPG")).thenReturn(true);
         assertEquals("BBPS_GAS_LPG", service.chargeModeFor(" Gas - LPG "));

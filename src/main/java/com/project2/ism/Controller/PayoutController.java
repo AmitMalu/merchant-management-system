@@ -7,6 +7,7 @@ import com.project2.ism.DTO.PayoutDTO.*;
 import com.project2.ism.Model.Payout.PayoutTransaction;
 import com.project2.ism.Repository.PayoutTransactionRepository;
 import com.project2.ism.Service.CallerIdentityService;
+import com.project2.ism.Service.PayoutEngine;
 import com.project2.ism.Service.PayoutService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -40,13 +41,16 @@ public class PayoutController {
     private final PayoutService payoutService;
     private final PayoutTransactionRepository payoutTxnRepo;
     private final CallerIdentityService callerIdentity;
+    private final PayoutEngine payoutEngine;
 
     public PayoutController(PayoutService payoutService,
                             PayoutTransactionRepository payoutTxnRepo,
-                            CallerIdentityService callerIdentity) {
+                            CallerIdentityService callerIdentity,
+                            PayoutEngine payoutEngine) {
         this.payoutService = payoutService;
         this.payoutTxnRepo = payoutTxnRepo;
         this.callerIdentity = callerIdentity;
+        this.payoutEngine = payoutEngine;
     }
 
     /**
@@ -65,7 +69,7 @@ public class PayoutController {
         // logged-in user really owns it before any money moves.
         callerIdentity.requireOwner(request.getInitiatorType(), request.getInitiatorId());
 
-        PayoutResult result = payoutService.initiatePayout(request, defaultPayoutVendorId);
+        PayoutResult result = payoutEngine.initiate(request, defaultPayoutVendorId);
 
         if ("FAILED".equals(result.getStatus())) {
             return ResponseEntity.badRequest().body(result);
@@ -98,7 +102,7 @@ public class PayoutController {
         // logged-in user's own bank account.
         callerIdentity.requireOwnsPayoutBank(request.getPayoutBankId());
 
-        PayoutResult result = payoutService.initiateSimplePayout(request, defaultPayoutVendorId);
+        PayoutResult result = payoutEngine.initiateSimple(request, defaultPayoutVendorId);
 
         SimplePayoutResponse response = new SimplePayoutResponse(
                 result.getStatus(), result.getMessage(), result.getTxnId(), result.getMerchantRefId()

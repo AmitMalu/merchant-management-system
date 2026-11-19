@@ -89,6 +89,15 @@ public class BbpsPaymentService {
 
     private static final String CATEGORY_MODE_PREFIX = "BBPS_";
 
+    // Routing trial run: records which vendor routing WOULD choose, next to the vendor really used. It never
+    // throws and never changes the payment. Optional, so a missing bean can never stop the application.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PaymentRoutingTrialService routingTrial;
+
+    // Credit card bills follow routing when that rule is on (off by default). Optional, like the trial run.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CreditCardRouteGuard creditCardRoute;
+
     public BbpsPaymentService(PaymentVendorRepository paymentVendorRepository,
                                BillAvenueConfigRepository billAvenueConfigRepository,
                                BillAvenueApiClient billAvenueApiClient,
@@ -139,6 +148,7 @@ public class BbpsPaymentService {
         requireBillerAcceptsPaymentMode(billerId == null ? null
                 : billAvenueConfigRepository.findByProviderId(billerId.trim()).orElse(null));
         String category = categoryOfBiller(billerId);
+        requireRoutedHere(merchantId, category);
         BigDecimal charges = calculateCharges(billAmount, merchantId, category);
 
         java.util.Map<String, Object> quote = new java.util.LinkedHashMap<>();
@@ -178,6 +188,10 @@ public class BbpsPaymentService {
 
         // Refuse a biller that does not accept our payment mode (Bill Avenue: E0379), before any money moves.
         requireBillerAcceptsPaymentMode(billerConfig);
+
+        // Credit card bills follow routing (only when that rule is on): refuse before any money moves when routing
+        // sends this merchant's credit card payments to the other vendor.
+        requireRoutedHere(merchantId, billerConfig != null ? billerConfig.getServiceName() : null);
 
         // The payment must use the SAME request id as the bill fetch (Bill Avenue links them by it:
         // "No fetch data found for given ref id" otherwise). One payment per fetch: a request id that
@@ -223,6 +237,12 @@ public class BbpsPaymentService {
         bbpsTxn.setPaymentMode(request.getPaymentMethod() != null ? request.getPaymentMethod().getPaymentMode() : null);
         bbpsTxn.setStatus(BbpsTransaction.BbpsStatus.PENDING);
         bbpsTxn = bbpsTransactionRepository.save(bbpsTxn);
+
+        // Trial run only: note which vendor routing would choose. Does not change this payment.
+        if (routingTrial != null) {
+            routingTrial.recordBillAvenue(merchantId, billAmount,
+                    billerConfig != null ? billerConfig.getServiceName() : null, vendor.getId(), requestId);
+        }
 
         // 6. Ledger DEBIT entry (PENDING)
         MerchantTransactionDetails ledgerEntry = recordDebitLedger(merchantId, totalDeduction, balanceAfterDebit, bbpsTxn);
@@ -623,6 +643,12 @@ public class BbpsPaymentService {
         }
         throw new IllegalArgumentException(biller.getProviderName() + " does not accept " + vendorPaymentMode
                 + " payments, so it cannot be paid from here. It accepts: " + String.join(", ", accepted) + ".");
+    }
+
+    private void requireRoutedHere(Long merchantId, String category) {
+        if (creditCardRoute != null && creditCardRoute.blocksBillAvenueCreditCard(merchantId, category)) {
+            throw new IllegalArgumentException(CreditCardRouteGuard.NOT_AVAILABLE);
+        }
     }
 
     /** The bill category (service name) of a biller from the saved biller list, or null if unknown. */

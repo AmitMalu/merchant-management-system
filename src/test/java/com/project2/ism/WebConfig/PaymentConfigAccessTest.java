@@ -59,6 +59,8 @@ class PaymentConfigAccessTest {
             "/payment-modes", "/payment-modes/5",
             "/payment-products", "/payment-products/id-name",
             "/payment-vendor-routing", "/payment-vendor-routing/5",
+            "/payment-routing", "/payment-routing/5", "/payment-routing/5/assignments", "/payment-routing/simulate",
+            "/payment-routing/seed-defaults", "/payment-routing/product-vendors", "/payment-routing/audit",
             "/billpay/config/sync-billers");
 
     private static final List<HttpMethod> METHODS = List.of(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE);
@@ -125,6 +127,32 @@ class PaymentConfigAccessTest {
         // the vendor's callback is still reachable without a login
         assertNotEquals(403, status(HttpMethod.POST, "/payment-payout/callback", null));
         assertNotEquals(403, status(HttpMethod.POST, "/paytm/notification", null));
+    }
+
+    @Test
+    void myProducts_isOpenToAnyLoggedInUser_butNotToAnonymous() throws Exception {
+        // a merchant or franchise asks which products it has a routing for (for its own menu)
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/my-products", "MERCHANT"));
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/my-products", "FRANCHISE"));
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/my-products", "ADMIN"));
+        assertEquals(403, status(HttpMethod.GET, "/payment-routing/my-products", null));
+    }
+
+    @Test
+    void myMenu_isOpenToAnyLoggedInUser_butTheMenuRulesSwitchIsAdminOnly() throws Exception {
+        // the sidebar asks which menus the merchant or franchise should see
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/my-menu", "MERCHANT"));
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/my-menu", "FRANCHISE"));
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/my-menu", "ADMIN"));
+        assertEquals(403, status(HttpMethod.GET, "/payment-routing/my-menu", null));
+
+        // changing the rules, and reading the category lists, are for admins only
+        assertEquals(403, status(HttpMethod.POST, "/payment-routing/menu-rules", "MERCHANT"));
+        assertEquals(403, status(HttpMethod.POST, "/payment-routing/menu-rules", "FRANCHISE"));
+        assertEquals(403, status(HttpMethod.GET, "/payment-routing/menu-rules", "MERCHANT"));
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/menu-rules", "ADMIN"));
+        assertEquals(403, status(HttpMethod.GET, "/payment-routing/categories", "MERCHANT"));
+        assertNotEquals(403, status(HttpMethod.GET, "/payment-routing/categories", "ADMIN"));
     }
 
     @Test
