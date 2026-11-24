@@ -75,7 +75,13 @@ public class GlobalExceptionHandler {
             String sqlMessage = sqlEx.getMessage();
 
             if (sqlMessage.contains("Duplicate entry")) {
+                // The log line names the value and the column; the message names the value so it can be found.
+                logger.warn("Duplicate entry rejected by the database: {}", sqlMessage);
                 message = "A record with the same unique fields already exists.";
+                java.util.regex.Matcher dup = java.util.regex.Pattern.compile("Duplicate entry '(.*?)' for key").matcher(sqlMessage);
+                if (dup.find() && !dup.group(1).isBlank()) {
+                    message = "A record with the same unique fields already exists (value: " + dup.group(1) + ").";
+                }
                 status = HttpStatus.CONFLICT;
             } else if (sqlMessage.contains("cannot be null")) {
                 message = "A required field is missing.";
