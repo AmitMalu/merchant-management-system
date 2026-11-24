@@ -13,7 +13,11 @@ import com.project2.ism.Repository.*;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -103,8 +107,42 @@ public class InwardTransactionService {
         inwardRepo.delete(inward);
     }
 
+    /** A blank value means "not entered": trim it, and store nothing (null) instead of an empty text. */
+    private static String clean(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * The same MID / TID / SID / VPAID twice inside one entry. The check against saved records below cannot
+     * see this (nothing is saved yet), so the database would refuse it later with a vague message.
+     */
+    private static void rejectRepeatedValues(List<ProductSerialNumbers> serials, String label,
+                                             Function<ProductSerialNumbers, String> getter) {
+        Set<String> seen = new HashSet<>();
+        for (ProductSerialNumbers sn : serials) {
+            String value = getter.apply(sn);
+            if (value != null && !seen.add(value.toLowerCase(Locale.ROOT))) {
+                throw new DuplicateResourceException(label + " " + value + " is entered more than once in this entry");
+            }
+        }
+    }
+
     private void validateAndAttachSerials(InwardTransactions inward) {
         if (inward.getProductSerialNumbers() == null) return;
+
+        for (ProductSerialNumbers sn : inward.getProductSerialNumbers()) {
+            sn.setSid(clean(sn.getSid()));
+            sn.setMid(clean(sn.getMid()));
+            sn.setTid(clean(sn.getTid()));
+            sn.setVpaid(clean(sn.getVpaid()));
+        }
+        rejectRepeatedValues(inward.getProductSerialNumbers(), "SID", ProductSerialNumbers::getSid);
+        rejectRepeatedValues(inward.getProductSerialNumbers(), "MID", ProductSerialNumbers::getMid);
+        rejectRepeatedValues(inward.getProductSerialNumbers(), "TID", ProductSerialNumbers::getTid);
+        rejectRepeatedValues(inward.getProductSerialNumbers(), "VPAID", ProductSerialNumbers::getVpaid);
+
         for (ProductSerialNumbers sn : inward.getProductSerialNumbers()) {
             if (sn.getSid() != null && serialRepo.existsBySid(sn.getSid())) {
                 throw new DuplicateResourceException("SID already exists: " + sn.getSid());
