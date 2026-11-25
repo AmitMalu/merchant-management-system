@@ -101,4 +101,32 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
             @Param("transactionId")
             Long ledgerFranchiseTxnId
     );
+
+    // ---- Admin dashboard (Payout today). Rows are Object[]: see AdminPaymentsTodayService.
+
+    /** Per status: [status, count, amount, charges] for payouts created in [from, to). */
+    @Query("select p.status, count(p), coalesce(sum(p.amount), 0), coalesce(sum(p.charges), 0) "
+            + "from PayoutTransaction p where p.createdAt >= :from and p.createdAt < :to group by p.status")
+    List<Object[]> dashboardTotalsByStatus(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** Per vendor and status: [vendorId, status, count, amount] for payouts created in [from, to). */
+    @Query("select p.vendorId, p.status, count(p), coalesce(sum(p.amount), 0) "
+            + "from PayoutTransaction p where p.createdAt >= :from and p.createdAt < :to group by p.vendorId, p.status")
+    List<Object[]> dashboardTotalsByVendor(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** Most common failure messages: [message, count], most common first (pass a page to limit). */
+    @Query("select p.responseMessage, count(p) from PayoutTransaction p "
+            + "where p.status = :status "
+            + "and p.createdAt >= :from and p.createdAt < :to and p.responseMessage is not null "
+            + "group by p.responseMessage order by count(p) desc")
+    List<Object[]> dashboardFailureReasons(@Param("status") PayoutTransaction.PayoutStatus status,
+                                           @Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
+                                           org.springframework.data.domain.Pageable page);
+
+    /** Payouts still PENDING that were created before the cut-off (any day). */
+    @Query("select count(p) from PayoutTransaction p "
+            + "where p.status = :status and p.createdAt < :cutoff")
+    long dashboardStuckPending(@Param("status") PayoutTransaction.PayoutStatus status,
+                               @Param("cutoff") LocalDateTime cutoff);
+
 }

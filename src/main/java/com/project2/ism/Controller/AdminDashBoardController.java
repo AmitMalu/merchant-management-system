@@ -1,6 +1,8 @@
 package com.project2.ism.Controller;
 
+import com.project2.ism.DTO.AdminDTO.PaymentsTodayDTO;
 import com.project2.ism.Service.AdminDashboardService;
+import com.project2.ism.Service.AdminPaymentsTodayService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,7 @@ public class AdminDashBoardController {
     private static final Logger logger = LoggerFactory.getLogger(AdminDashBoardController.class);
 
     private final AdminDashboardService adminDashboardService;
+    private final AdminPaymentsTodayService paymentsToday;
 
 //     Optional: Keep individual services if you need them for other operations
 //    private final FranchiseService franchiseService;
@@ -26,8 +29,10 @@ public class AdminDashBoardController {
 //    private final StatsService statsService;
 //    private final ProductService productService;
 
-    public AdminDashBoardController(AdminDashboardService adminDashboardService) {
+    public AdminDashBoardController(AdminDashboardService adminDashboardService,
+                                    AdminPaymentsTodayService paymentsToday) {
         this.adminDashboardService = adminDashboardService;
+        this.paymentsToday = paymentsToday;
 
     }
 
@@ -46,6 +51,24 @@ public class AdminDashBoardController {
             logger.error("Error fetching all dashboard statistics: {}", e.getMessage(), e);
             Map<String, String> error = new HashMap<>();
             error.put("error", "Failed to fetch dashboard statistics");
+            error.put("message", e.getMessage());
+            return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * The Payout and Bill payment cards: today's success / failed / pending, amounts and a line per vendor.
+     * Admin and super admin only (SecurityConfig).
+     */
+    @GetMapping("/payments-today")
+    public ResponseEntity<?> getPaymentsToday() {
+        try {
+            PaymentsTodayDTO dto = paymentsToday.today();
+            return ResponseEntity.ok(dto);
+        } catch (Exception e) {
+            logger.error("Error fetching today's payments for the dashboard: {}", e.getMessage(), e);
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Failed to fetch today's payments");
             error.put("message", e.getMessage());
             return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
         }
