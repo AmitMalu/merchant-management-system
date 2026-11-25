@@ -91,4 +91,30 @@ public interface CreditCardBillTransactionRepository extends JpaRepository<Credi
                                                 @Param("customerId") Long customerId,
                                                 @Param("excluded") CreditCardBillTransaction.Status excluded,
                                                 Pageable pageable);
+
+    // ---- Admin dashboard (credit card payments through SuivrePay). A FETCHED row is only a bill lookup:
+    // it is not a payment, so it is left out. Rows are Object[]: see AdminPaymentsTodayService.
+
+    /** Per status: [status, count, amount, charges] for credit card payments created in [from, to). */
+    @Query("select t.status, count(t), coalesce(sum(coalesce(t.paidAmount, t.billAmount)), 0), coalesce(sum(t.charges), 0) "
+            + "from CreditCardBillTransaction t where t.createdAt >= :from and t.createdAt < :to "
+            + "and t.status <> :excluded group by t.status")
+    List<Object[]> dashboardTotalsByStatus(@Param("excluded") CreditCardBillTransaction.Status excluded,
+                                           @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /** Most common failure messages: [message, count], most common first (pass a page to limit). */
+    @Query("select t.responseMessage, count(t) from CreditCardBillTransaction t "
+            + "where t.status = :status "
+            + "and t.createdAt >= :from and t.createdAt < :to and t.responseMessage is not null "
+            + "group by t.responseMessage order by count(t) desc")
+    List<Object[]> dashboardFailureReasons(@Param("status") CreditCardBillTransaction.Status status,
+                                           @Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
+                                           Pageable page);
+
+    /** Credit card payments still PENDING that were created before the cut-off (any day). */
+    @Query("select count(t) from CreditCardBillTransaction t "
+            + "where t.status = :status and t.createdAt < :cutoff")
+    long dashboardStuckPending(@Param("status") CreditCardBillTransaction.Status status,
+                               @Param("cutoff") LocalDateTime cutoff);
+
 }

@@ -142,6 +142,10 @@ public class SecurityConfig {
                         .requestMatchers("/merchants/*/settings", "/franchise/*/settings")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
 
+                        // Admin dashboard: today's Payout and Bill payment numbers.
+                        .requestMatchers("/admin-dashboard/payments-today")
+                        .hasAnyRole("ADMIN", "SUPER_ADMIN")
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
