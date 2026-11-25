@@ -4,9 +4,13 @@ import com.project2.ism.DTO.AdminDTO.PaymentsTodayDTO;
 import com.project2.ism.Model.Bbps.BbpsTransaction;
 import com.project2.ism.Model.CreditCard.CreditCardBillTransaction;
 import com.project2.ism.Model.Payment.PaymentVendor;
+import com.project2.ism.Model.Payment.PaymentProduct;
 import com.project2.ism.Model.Payout.PayoutTransaction;
+import com.project2.ism.Model.Routing.PaymentProductVendor;
 import com.project2.ism.Repository.BbpsTransactionRepository;
 import com.project2.ism.Repository.CreditCardBillTransactionRepository;
+import com.project2.ism.Repository.PaymentProductRepository;
+import com.project2.ism.Repository.PaymentProductVendorRepository;
 import com.project2.ism.Repository.PaymentVendorRepository;
 import com.project2.ism.Repository.PayoutTransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +21,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,6 +45,8 @@ class AdminPaymentsTodayServiceTest {
     private BbpsTransactionRepository bills;
     private CreditCardBillTransactionRepository cards;
     private PaymentVendorRepository vendors;
+    private PaymentProductRepository products;
+    private PaymentProductVendorRepository productVendors;
     private AdminPaymentsTodayService service;
 
     @BeforeEach
@@ -48,7 +55,29 @@ class AdminPaymentsTodayServiceTest {
         bills = mock(BbpsTransactionRepository.class);
         cards = mock(CreditCardBillTransactionRepository.class);
         vendors = mock(PaymentVendorRepository.class);
-        service = new AdminPaymentsTodayService(payouts, bills, cards, vendors, 30);
+        products = mock(PaymentProductRepository.class);
+        productVendors = mock(PaymentProductVendorRepository.class);
+        service = serviceWithDefaultVendor(0);
+    }
+
+    private AdminPaymentsTodayService serviceWithDefaultVendor(long defaultVendorId) {
+        return new AdminPaymentsTodayService(payouts, bills, cards, vendors, products, productVendors,
+                "001", defaultVendorId, 30);
+    }
+
+    /** The vendors that are set up for Payout (Product Vendors): [vendor, enabled] pairs. */
+    private void payoutVendorsSetUp(Object... vendorAndEnabled) {
+        PaymentProduct payout = new PaymentProduct();
+        ReflectionTestUtils.setField(payout, "id", 1L);
+        when(products.findByProductCode("001")).thenReturn(Optional.of(payout));
+        List<PaymentProductVendor> links = new java.util.ArrayList<>();
+        for (int i = 0; i < vendorAndEnabled.length; i += 2) {
+            PaymentProductVendor link = new PaymentProductVendor();
+            link.setVendor((PaymentVendor) vendorAndEnabled[i]);
+            link.setEnabled((Boolean) vendorAndEnabled[i + 1]);
+            links.add(link);
+        }
+        when(productVendors.findAllWithDetails(1L)).thenReturn(links);
     }
 
     private static Object[] row(Object... values) {
@@ -204,5 +233,71 @@ class AdminPaymentsTodayServiceTest {
 
         assertTrue(reason.length() <= 120);
         assertTrue(reason.endsWith("…"));
+    }
+
+    @Test
+    void payout_aVendorSetUpForPayoutShowsEvenWithNoPayoutToday_asZero() {
+        PaymentVendor vimo = vendor(7L, "Vimo Pay");
+        PaymentVendor second = vendor(9L, "Second Vendor");
+        payoutVendorsSetUp(vimo, true, second, true);
+        when(vendors.findAllById(any())).thenReturn(List.of(vimo, second));
+
+        List<PaymentsTodayDTO.Line> lines = service.today(NOW).payout().lines();
+
+        assertEquals(2, lines.size());                           // both show, with zeros, sorted by name
+        assertEquals("Second Vendor", lines.get(0).name());
+        assertEquals("Vimo Pay", lines.get(1).name());
+        for (PaymentsTodayDTO.Line line : lines) {
+            assertEquals(0, line.count());
+            assertEquals(0, BigDecimal.ZERO.compareTo(line.amount()));
+        }
+    }
+
+    @Test
+    void payout_theDefaultPayoutVendorShowsEvenWhenNothingIsSetUp() {
+        service = serviceWithDefaultVendor(7L);
+        when(vendors.findAllById(any())).thenReturn(List.of(vendor(7L, "Vimo Pay")));
+
+        List<PaymentsTodayDTO.Line> lines = service.today(NOW).payout().lines();
+
+        assertEquals(1, lines.size());
+        assertEquals("Vimo Pay", lines.get(0).name());
+        assertEquals(0, lines.get(0).count());
+    }
+
+    @Test
+    void payout_aDisabledVendorIsHidden_unlessItHadAPayoutToday() {
+        PaymentVendor vimo = vendor(7L, "Vimo Pay");
+        PaymentVendor old = vendor(8L, "Old Vendor");
+        payoutVendorsSetUp(vimo, true, old, false);
+        when(vendors.findAllById(any())).thenReturn(List.of(vimo));
+
+        assertEquals(1, service.today(NOW).payout().lines().size());
+
+        when(payouts.dashboardTotalsByVendor(START, NOW)).thenReturn(rows(
+                row(8L, PayoutTransaction.PayoutStatus.SUCCESS, 1L, new BigDecimal("500"))));
+        when(vendors.findAllById(any())).thenReturn(List.of(vimo, old));
+
+        List<PaymentsTodayDTO.Line> lines = service.today(NOW).payout().lines();
+
+        assertEquals(2, lines.size());
+        assertEquals("Old Vendor", lines.get(0).name());         // has the money, so first
+        assertEquals(1, lines.get(0).count());
+        assertEquals("Vimo Pay", lines.get(1).name());
+    }
+
+    @Test
+    void payout_aVendorSetUpAndPaidToday_isNotListedTwice() {
+        PaymentVendor vimo = vendor(7L, "Vimo Pay");
+        payoutVendorsSetUp(vimo, true);
+        service = serviceWithDefaultVendor(7L);
+        when(payouts.dashboardTotalsByVendor(START, NOW)).thenReturn(rows(
+                row(7L, PayoutTransaction.PayoutStatus.SUCCESS, 3L, new BigDecimal("900"))));
+        when(vendors.findAllById(any())).thenReturn(List.of(vimo));
+
+        List<PaymentsTodayDTO.Line> lines = service.today(NOW).payout().lines();
+
+        assertEquals(1, lines.size());
+        assertEquals(3, lines.get(0).count());
     }
 }

@@ -9,6 +9,8 @@ import com.project2.ism.Model.Bbps.BbpsTransaction;
 import com.project2.ism.Model.CreditCard.CreditCardBillTransaction;
 import com.project2.ism.Model.Payment.PaymentVendor;
 import com.project2.ism.Model.Payout.PayoutTransaction;
+import com.project2.ism.Repository.PaymentProductRepository;
+import com.project2.ism.Repository.PaymentProductVendorRepository;
 import com.project2.ism.Repository.BbpsTransactionRepository;
 import com.project2.ism.Repository.CreditCardBillTransactionRepository;
 import com.project2.ism.Repository.PaymentVendorRepository;
@@ -23,7 +25,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +35,9 @@ import java.util.function.BiFunction;
 /**
  * Numbers for the Payout and Bill payment cards on the admin dashboard.
  *
- * Payout: payout_transactions, with one line per vendor that had payments today (a new vendor appears by
- * itself). Bill payment: Bill Avenue (bbps_transactions) and SuivrePay credit card payments
+ * Payout: payout_transactions, with one line for every vendor set up for Payout (Product Vendors, enabled) and
+ * for the default payout vendor, even when it had no payout today (0). A vendor that had a payout today
+ * but is no longer set up is shown too. A new vendor therefore appears as soon as it is added. Bill payment: Bill Avenue (bbps_transactions) and SuivrePay credit card payments
  * (credit_card_bill_transactions) added together, with one line for each.
  *
  * Read only. "Today" is from 00:00 until now, in the server's time zone (the same clock that stamps the rows).
@@ -50,17 +53,29 @@ public class AdminPaymentsTodayService {
     private final BbpsTransactionRepository bills;
     private final CreditCardBillTransactionRepository cards;
     private final PaymentVendorRepository vendors;
+    private final PaymentProductRepository products;
+    private final PaymentProductVendorRepository productVendors;
+    private final String payoutProductCode;
+    private final long defaultPayoutVendorId;
     private final int stuckPendingMinutes;
 
     public AdminPaymentsTodayService(PayoutTransactionRepository payouts,
                                      BbpsTransactionRepository bills,
                                      CreditCardBillTransactionRepository cards,
                                      PaymentVendorRepository vendors,
+                                     PaymentProductRepository products,
+                                     PaymentProductVendorRepository productVendors,
+                                     @Value("${routing.payout-product-code:001}") String payoutProductCode,
+                                     @Value("${payout.default.vendor.id:0}") long defaultPayoutVendorId,
                                      @Value("${dashboard.stuck-pending-minutes:30}") int stuckPendingMinutes) {
         this.payouts = payouts;
         this.bills = bills;
         this.cards = cards;
         this.vendors = vendors;
+        this.products = products;
+        this.productVendors = productVendors;
+        this.payoutProductCode = payoutProductCode;
+        this.defaultPayoutVendorId = defaultPayoutVendorId;
         this.stuckPendingMinutes = stuckPendingMinutes;
     }
 
@@ -93,14 +108,24 @@ public class AdminPaymentsTodayService {
                 payoutVendorLines(payouts.dashboardTotalsByVendor(start, now)));
     }
 
-    /** One line per vendor that had a payout today: its successful payouts. Biggest first. */
+    /**
+     * One line for every payout vendor: successful payouts today (0 when none). The vendors are the ones enabled
+     * for Payout in Product Vendors, the default payout vendor, and any vendor that had a payout today.
+     * Biggest amount first, then by name.
+     */
     private List<Line> payoutVendorLines(List<Object[]> rows) {
+        Set<Long> ids = new LinkedHashSet<>(configuredPayoutVendorIds());
         Map<Long, long[]> counts = new LinkedHashMap<>();
         Map<Long, BigDecimal> amounts = new LinkedHashMap<>();
-        Set<Long> seen = new HashSet<>();
+        boolean anyWithoutVendor = false;
+
         for (Object[] row : rows) {
             Long vendorId = row[0] == null ? null : ((Number) row[0]).longValue();
-            seen.add(vendorId);
+            if (vendorId == null) {
+                anyWithoutVendor = true;
+            } else {
+                ids.add(vendorId);
+            }
             counts.computeIfAbsent(vendorId, k -> new long[1]);
             amounts.putIfAbsent(vendorId, BigDecimal.ZERO);
             if ("SUCCESS".equals(String.valueOf(row[1]))) {
@@ -110,7 +135,6 @@ public class AdminPaymentsTodayService {
         }
 
         Map<Long, String> names = new LinkedHashMap<>();
-        List<Long> ids = seen.stream().filter(id -> id != null).toList();
         if (!ids.isEmpty()) {
             for (PaymentVendor v : vendors.findAllById(ids)) {
                 names.put(v.getId(), v.getVendorName());
@@ -118,12 +142,31 @@ public class AdminPaymentsTodayService {
         }
 
         List<Line> lines = new ArrayList<>();
-        for (Long vendorId : seen) {
-            String name = vendorId == null ? "Other" : names.getOrDefault(vendorId, "Vendor " + vendorId);
-            lines.add(new Line(vendorId, name, counts.get(vendorId)[0], amounts.get(vendorId)));
+        for (Long vendorId : ids) {
+            long[] count = counts.get(vendorId);
+            lines.add(new Line(vendorId, names.getOrDefault(vendorId, "Vendor " + vendorId),
+                    count == null ? 0 : count[0], amounts.getOrDefault(vendorId, BigDecimal.ZERO)));
+        }
+        if (anyWithoutVendor) {
+            lines.add(new Line(null, "Other", counts.get(null)[0], amounts.get(null)));
         }
         lines.sort(Comparator.comparing(Line::amount).reversed().thenComparing(Line::name));
         return lines;
+    }
+
+    /** Vendors enabled for the Payout product, plus the default payout vendor (the one used when nothing is routed). */
+    private Set<Long> configuredPayoutVendorIds() {
+        Set<Long> ids = new LinkedHashSet<>();
+        products.findByProductCode(payoutProductCode).ifPresent(product ->
+                productVendors.findAllWithDetails(product.getId()).forEach(link -> {
+                    if (!Boolean.FALSE.equals(link.getEnabled()) && link.getVendor() != null) {
+                        ids.add(link.getVendor().getId());
+                    }
+                }));
+        if (defaultPayoutVendorId > 0) {
+            ids.add(defaultPayoutVendorId);
+        }
+        return ids;
     }
 
     // ------------------------------------------------------------ bill payment
