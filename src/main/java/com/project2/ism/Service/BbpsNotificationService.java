@@ -4,6 +4,7 @@ import com.project2.ism.Model.Bbps.BbpsTransaction;
 import com.project2.ism.Repository.BbpsTransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -23,10 +24,18 @@ public class BbpsNotificationService {
 
     private final BbpsTransactionRepository transactions;
     private final SmsService smsService;
+    private final SurepassSmsService surepass;
 
-    public BbpsNotificationService(BbpsTransactionRepository transactions, SmsService smsService) {
+    @Autowired
+    public BbpsNotificationService(BbpsTransactionRepository transactions, SmsService smsService,
+                                   SurepassSmsService surepass) {
         this.transactions = transactions;
         this.smsService = smsService;
+        this.surepass = surepass;
+    }
+
+    public BbpsNotificationService(BbpsTransactionRepository transactions, SmsService smsService) {
+        this(transactions, smsService, null);
     }
 
     public void notifyPaymentSuccess(String txnRefId) {
@@ -49,6 +58,20 @@ public class BbpsNotificationService {
                     : (t.getCategory() != null ? t.getCategory() : "your bill");
             LocalDateTime when = t.getCompletedAt() != null ? t.getCompletedAt() : LocalDateTime.now();
 
+            // The admin can switch this SMS off; then no sender sends it.
+            if (surepass != null && !surepass.isEnabled(SurepassSmsService.BILL_AVENUE_PAYMENT)) {
+                log.info("Payment SMS NOT sent: switched off by an admin (SMS Settings) for txn {}", txnRefId);
+                return;
+            }
+            // Surepass (DLT template) takes over once it is ready for this message.
+            // Until then the old sender below is used, exactly as before.
+            if (surepass != null && surepass.isActive(SurepassSmsService.BILL_AVENUE_PAYMENT)) {
+                surepass.sendPaymentSuccess(SurepassSmsService.BILL_AVENUE_PAYMENT, t.getCustomerMobile(), t.getAmount(), biller, t.getConsumerNumber(),
+                        t.getTxnRefId(), when, t.getPaymentMode() != null ? t.getPaymentMode() : "WALLET",
+                        "BBPS:" + t.getTxnRefId());
+                return;
+            }
+
             smsService.send(t.getCustomerMobile(),
                     "Thank you for payment of Rs." + t.getAmount().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
                             + " against " + biller
@@ -67,6 +90,16 @@ public class BbpsNotificationService {
             BbpsTransaction t = find(txnRefId);
             if (t == null) {
                 log.warn("Complaint SMS NOT sent: no saved payment found for txn {}", txnRefId);
+                return;
+            }
+            if (surepass != null && !surepass.isEnabled(SurepassSmsService.BILL_AVENUE_COMPLAINT)) {
+                log.info("Complaint SMS NOT sent: switched off by an admin (SMS Settings) for txn {}", txnRefId);
+                return;
+            }
+            // Surepass (DLT template) takes over once it is ready for this message.
+            if (surepass != null && surepass.isActive(SurepassSmsService.BILL_AVENUE_COMPLAINT)) {
+                surepass.sendComplaintRegistered(t.getCustomerMobile(), t.getTxnRefId(), complaintId,
+                        "BBPS-COMPLAINT:" + complaintId);
                 return;
             }
             smsService.send(t.getCustomerMobile(),

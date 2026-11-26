@@ -48,6 +48,9 @@ public class SecurityConfig {
 
                         .requestMatchers("/users/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
 
+                        // SMS on/off switches: admins only.
+                        .requestMatchers("/sms-settings/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
+
                         .requestMatchers("/users/**").permitAll()
 
                         .requestMatchers("/actuator/health").permitAll()

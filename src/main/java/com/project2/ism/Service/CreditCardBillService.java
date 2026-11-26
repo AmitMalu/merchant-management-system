@@ -195,6 +195,14 @@ public class CreditCardBillService {
         this.featureAccess = featureAccess;
     }
 
+    /** Customer SMS after a successful payment. Optional so the service still works without it. */
+    private CreditCardNotificationService notifications;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setNotifications(CreditCardNotificationService notifications) {
+        this.notifications = notifications;
+    }
+
     // =====================================================================
     // 1. Billers
     // =====================================================================
@@ -500,7 +508,12 @@ public class CreditCardBillService {
         final VendorResponse vendorResponse = response;
         final Outcome finalOutcome = outcome;
         try {
-            return tx.execute(status -> finalizePayment(who, prepared, vendorResponse, finalOutcome));
+            PaymentResult result = tx.execute(status -> finalizePayment(who, prepared, vendorResponse, finalOutcome));
+            // The payment is saved and committed by now. Tell the customer (in the background).
+            if (notifications != null && result != null && Status.SUCCESS.name().equals(result.status())) {
+                notifications.notifyPaymentSuccess(result.transactionId());
+            }
+            return result;
         } catch (Exception e) {
             // The debit is already committed and the row is PENDING, so nothing is lost;
             // log everything needed to reconcile by hand.
