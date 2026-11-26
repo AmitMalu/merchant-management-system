@@ -50,7 +50,7 @@ class PermissionDefaultsTest {
                 "Payment", "Payment Products", "Payment Charges", "Payment Vendors", "Payment Vendors Credentials",
                 "Payment Vendor Routing",
                 "Other", "File Upload", "Charge Calculation", "Batch Status", "Prefund Authorization",
-                "Merchant Settings", "Update Transaction", "Notification URL",
+                "Merchant Settings", "Update Transaction", "Notification URL", "SMS Settings",
                 "Transaction Monitoring", "Support Tickets", "Reports")) {
             assertTrue(added.contains(name), "missing: " + name);
         }
